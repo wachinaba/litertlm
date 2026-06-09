@@ -1,0 +1,5 @@
+*
+!.gitignore
+!pubspec.yaml
+!lib/
+!lib/main.dart
