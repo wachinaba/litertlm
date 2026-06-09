@@ -1,15 +1,22 @@
 name: litertlm
 description: Unified Flutter package for LiteRT-LM on every platform.
-version: 0.0.1
-homepage:
+version: 0.0.2
+homepage: https://github.com/yangyuan/litertlm
 
 environment:
   sdk: ^3.12.1
   flutter: ">=1.17.0"
 
 dependencies:
+  code_assets: ^1.0.0
+  ffi: ^2.1.4
   flutter:
     sdk: flutter
+  flutter_web_plugins:
+    sdk: flutter
+  hooks: ^2.0.2
+  jni: ^1.0.0
+  native_toolchain_c: ^0.19.1
 
 dev_dependencies:
   flutter_test:
@@ -17,3 +24,19 @@ dev_dependencies:
   flutter_lints: ^6.0.0
 
 flutter:
+  plugin:
+    platforms:
+      android:
+        package: org.rockstudio.litertlm
+        pluginClass: LiteRtLmPlugin
+      ios:
+        pluginClass: LiteRtLmPlugin
+      macos:
+        pluginClass: LiteRtLmPlugin
+      linux:
+        ffiPlugin: true
+      web:
+        pluginClass: LiteRtLmWeb
+        fileName: litertlm_web.dart
+      windows:
+        ffiPlugin: true

@@ -2,4 +2,9 @@
 !.gitignore
 !pubspec.yaml
 !lib/
-!lib/main.dart
+!lib/**/
+!lib/**/*.dart
+!test_driver/
+!test_driver/integration_test.dart
+!integration_test/
+!integration_test/litertlm_test.dart
