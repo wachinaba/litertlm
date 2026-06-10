@@ -1,87 +1,68 @@
+import 'dart:async';
 import 'dart:convert';
 
-enum ToolParameterType {
-  string('string'),
-  integer('integer'),
-  number('number'),
-  boolean('boolean'),
-  array('array');
+import 'exceptions.dart';
 
-  const ToolParameterType(this.jsonType);
+/// A tool that can be used by the LiteRT-LM model.
+abstract interface class Tool {
+  /// Gets the tool description in function schema format.
+  Map<String, Object?> getToolDescription();
 
-  final String jsonType;
+  /// Executes the tool with the given arguments.
+  FutureOr<Object?> execute(Map<String, Object?> arguments);
 }
 
-class ToolParameter {
-  const ToolParameter({
-    required this.name,
-    required this.type,
-    this.description = '',
-    this.required = true,
-    this.nullable = false,
-    this.itemType,
-  });
-
-  final String name;
-  final ToolParameterType type;
-  final String description;
-  final bool required;
-  final bool nullable;
-  final ToolParameterType? itemType;
-
-  Map<String, Object?> toJson() {
-    final schema = <String, Object?>{};
-    if (type == ToolParameterType.array) {
-      schema['type'] = ToolParameterType.array.jsonType;
-      schema['items'] = {'type': (itemType ?? ToolParameterType.string).jsonType};
-    } else {
-      schema['type'] = type.jsonType;
-    }
-    if (nullable) {
-      schema['nullable'] = true;
-    }
-    if (description.isNotEmpty) {
-      schema['description'] = description;
-    }
-    return schema;
-  }
-}
-
-class Tool {
-  const Tool({
-    required this.name,
-    required this.description,
-    this.parameters = const [],
-  });
-
-  final String name;
-  final String description;
-  final List<ToolParameter> parameters;
-
-  Map<String, Object?> toJson() {
-    final properties = <String, Object?>{};
-    final requiredFields = <String>[];
-    for (final parameter in parameters) {
-      properties[parameter.name] = parameter.toJson();
-      if (parameter.required) {
-        requiredFields.add(parameter.name);
+/// Manages tools and provides methods to execute tools and get their specifications.
+class ToolManager {
+  /// Creates a tool manager with the given tools.
+  ToolManager({List<Tool> tools = const []}) : _tools = {} {
+    for (final tool in tools) {
+      final description = tool.getToolDescription();
+      final function = description['function'];
+      if (function is! Map || function['name'] is! String) {
+        throw const LiteRtLmException(
+          'Tool description must contain ["function"]["name"].',
+        );
       }
+      _tools[function['name'] as String] = tool;
     }
+  }
 
-    final function = <String, Object?>{
-      'name': name,
-      'description': description,
-    };
-    if (properties.isNotEmpty) {
-      function['parameters'] = {
-        'type': 'object',
-        'properties': properties,
-        if (requiredFields.isNotEmpty) 'required': requiredFields,
+  final Map<String, Tool> _tools;
+
+  /// The tools description for all tools.
+  String get toolsJsonDescription => jsonEncode(
+    _tools.values
+        .map((tool) => tool.getToolDescription())
+        .toList(growable: false),
+  );
+
+  /// Executes a tool function by its name with the given arguments.
+  Future<Object?> execute({
+    required String name,
+    required Map<String, Object?> arguments,
+  }) async {
+    final tool = _tools[name];
+    if (tool == null) {
+      throw LiteRtLmException('Tool "$name" was not found.');
+    }
+    final result = await tool.execute(arguments);
+    return _normalizeJsonValue(result);
+  }
+
+  Object? _normalizeJsonValue(Object? value) {
+    if (value == null || value is String || value is num || value is bool) {
+      return value;
+    }
+    if (value is Map) {
+      return {
+        for (final entry in value.entries)
+          entry.key.toString(): _normalizeJsonValue(entry.value),
       };
     }
-
-    return {'type': 'function', 'function': function};
+    if (value is Iterable) {
+      return value.map(_normalizeJsonValue).toList(growable: false);
+    }
+    return value.toString();
   }
-
-  String toJsonString() => jsonEncode(toJson());
 }

@@ -11,7 +11,10 @@ import '../litertlm/message.dart';
 import '../litertlm/runtime.dart';
 import 'runtime.dart';
 
-class LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
+/// Creates the JNI-backed native runtime.
+LiteRtLmNativeRuntime createJniRuntime() => _LiteRtLmJniRuntime();
+
+class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
   final _class = JClass.forName('org/rockstudio/litertlm/LiteRtLmJniBridge');
 
   late final _createEngine = _class.staticMethodId(
@@ -102,6 +105,12 @@ class LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
     EngineHandle engine,
     ConversationConfig config,
   ) async {
+    if (config.enableConstrainedDecoding) {
+      throw UnsupportedError(
+        'enableConstrainedDecoding is not supported by the LiteRT-LM Android SDK.',
+      );
+    }
+
     final jniEngine = engine as _JniEngineHandle;
     final configJson = config.toJsonString().toJString();
     try {

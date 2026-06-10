@@ -4,6 +4,36 @@ import 'package:integration_test/integration_test.dart';
 import 'package:litertlm_example/model/asset.dart';
 import 'package:litertlm/litertlm.dart';
 
+class _WeatherTool implements Tool {
+  bool wasExecuted = false;
+  Map<String, Object?>? lastArguments;
+
+  @override
+  Map<String, Object?> getToolDescription() {
+    return {
+      'type': 'function',
+      'function': {
+        'name': 'get_weather',
+        'description': 'Gets the current weather for a city.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'city': {'type': 'string', 'description': 'City name.'},
+          },
+          'required': ['city'],
+        },
+      },
+    };
+  }
+
+  @override
+  Object? execute(Map<String, Object?> arguments) {
+    wasExecuted = true;
+    lastArguments = arguments;
+    return {'city': arguments['city'], 'temperature': 72};
+  }
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -128,20 +158,9 @@ void main() {
     try {
       await engine.initialize();
       conversation = await engine.createConversation(
-        const ConversationConfig(
-          tools: [
-            Tool(
-              name: 'get_weather',
-              description: 'Gets the current weather for a city.',
-              parameters: [
-                ToolParameter(
-                  name: 'city',
-                  type: ToolParameterType.string,
-                  description: 'City name.',
-                ),
-              ],
-            ),
-          ],
+        ConversationConfig(
+          automaticToolCalling: false,
+          tools: [_WeatherTool()],
         ),
       );
       final response = await conversation.sendMessage(
@@ -149,6 +168,35 @@ void main() {
       );
       expect(response.toolCalls, isNotEmpty);
       expect(response.toolCalls.first.name, 'get_weather');
+    } finally {
+      await conversation?.dispose();
+      await engine.dispose();
+    }
+  });
+
+  testWidgets('runs inference tool call auto', (tester) async {
+    final modelPath = await resolveModelAssetPath(
+      'assets/models/gemma-4-E2B-it.litertlm',
+    );
+    final engine = Engine(
+      engineConfig: EngineConfig(modelPath: modelPath, backend: Backend.cpu),
+    );
+    final weatherTool = _WeatherTool();
+    Conversation? conversation;
+    try {
+      await engine.initialize();
+      conversation = await engine.createConversation(
+        ConversationConfig(
+          automaticToolCalling: true,
+          tools: [weatherTool],
+        ),
+      );
+      final response = await conversation.sendMessage(
+        Message.user('Use get_weather for Mountain View.'),
+      );
+      expect(weatherTool.wasExecuted, isTrue);
+      expect(weatherTool.lastArguments, isNotNull);
+      expect(response.toolCalls, isEmpty);
     } finally {
       await conversation?.dispose();
       await engine.dispose();

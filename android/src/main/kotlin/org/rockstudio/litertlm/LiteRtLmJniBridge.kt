@@ -137,14 +137,20 @@ object LiteRtLmJniBridge {
 
     private fun parseConversationConfig(configJson: String): ConversationConfig {
         val json = JSONObject(configJson.ifBlank { "{}" })
-        val sessionConfig = json.optJSONObject("sessionConfig")
+        val systemMessage = json.optJSONObject("systemMessage")
+        val loraPath = json.optString("loraPath").takeIf { it.isNotEmpty() }
+        val audioLoraPath = json.optString("audioLoraPath").takeIf { it.isNotEmpty() }
         return ConversationConfig(
-            systemInstruction = json.opt("systemInstruction")?.let(::parseContents),
+            systemInstruction = systemMessage?.let { parseMessage(it).contents },
             initialMessages = parseMessages(json.optJSONArray("initialMessages")),
             tools = parseTools(json.optJSONArray("tools")),
             extraContext = parseMap(json.optJSONObject("extraContext")),
-            samplerConfig = sessionConfig?.optJSONObject("samplerConfig")?.let(::parseSamplerConfig),
-            loraConfig = sessionConfig?.optJSONObject("loraConfig")?.let(::parseLoraConfig),
+            samplerConfig = json.optJSONObject("samplerConfig")?.let(::parseSamplerConfig),
+            loraConfig = if (loraPath != null || audioLoraPath != null) {
+                LoraConfig(loraPath = loraPath, audioLoraPath = audioLoraPath)
+            } else {
+                null
+            },
             automaticToolCalling = false,
         )
     }
@@ -163,13 +169,6 @@ object LiteRtLmJniBridge {
                 }))
             }
         }
-    }
-
-    private fun parseLoraConfig(json: JSONObject): LoraConfig {
-        return LoraConfig(
-            loraPath = json.optString("loraPath").takeIf { it.isNotEmpty() },
-            audioLoraPath = json.optString("audioLoraPath").takeIf { it.isNotEmpty() },
-        )
     }
 
     private fun parseSamplerConfig(json: JSONObject): SamplerConfig {

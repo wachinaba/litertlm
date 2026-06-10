@@ -5,6 +5,41 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:litertlm/litertlm.dart';
 
+class _WeatherTool implements Tool {
+  const _WeatherTool();
+
+  @override
+  Map<String, Object?> getToolDescription() {
+    return {
+      'type': 'function',
+      'function': {
+        'name': 'get_weather',
+        'description': 'Gets the current weather for a city.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'city': {'type': 'string', 'description': 'City name.'},
+            'units': {
+              'type': 'array',
+              'items': {'type': 'string'},
+            },
+          },
+          'required': ['city'],
+        },
+      },
+    };
+  }
+
+  @override
+  Object? execute(Map<String, Object?> arguments) {
+    return {
+      'city': arguments['city'],
+      'days': [1, 2],
+      'custom': DateTime.utc(2026, 1, 2),
+    };
+  }
+}
+
 void main() {
   test('exports log level API', () {
     expect(setMinimumLogLevel, isA<void Function(LogSeverity)>());
@@ -47,22 +82,92 @@ void main() {
 
   test('serializes conversation preface config', () {
     final config = ConversationConfig(
-      systemInstruction: Contents.text('be concise'),
+      systemMessage: Message.system('be concise'),
       initialMessages: [Message.user('hello')],
       extraContext: {'locale': 'en-US'},
-      sessionConfig: SessionConfig(
-        samplerConfig: SamplerConfig(topK: 8, topP: 0.9, temperature: 0.7),
-      ),
+      samplerConfig: SamplerConfig(topK: 8, topP: 0.9, temperature: 0.7),
+      loraPath: 'adapter.bin',
+      automaticToolCalling: false,
+      enableConstrainedDecoding: true,
     );
 
     final json = jsonDecode(config.toJsonString()) as Map<String, Object?>;
-    expect(json['systemInstruction'], [
-      {'type': 'text', 'text': 'be concise'},
-    ]);
+    expect(json['systemMessage'], {
+      'role': 'system',
+      'content': [
+        {'type': 'text', 'text': 'be concise'},
+      ],
+    });
     expect(json['initialMessages'], isA<List<Object?>>());
     expect(json['extraContext'], {'locale': 'en-US'});
-    expect(json['sessionConfig'], {
-      'samplerConfig': {'topK': 8, 'topP': 0.9, 'temperature': 0.7, 'seed': 0},
+    expect(json['samplerConfig'], {
+      'topK': 8,
+      'topP': 0.9,
+      'temperature': 0.7,
+      'seed': 0,
     });
+    expect(json['loraPath'], 'adapter.bin');
+    expect(json['automaticToolCalling'], false);
+    expect(json['enableConstrainedDecoding'], true);
+  });
+
+  test('serializes executable tool descriptions', () {
+    final manager = ToolManager(tools: [const _WeatherTool()]);
+
+    final json = jsonDecode(manager.toolsJsonDescription) as List<Object?>;
+    final tool = json.single as Map<String, Object?>;
+    expect(tool['type'], 'function');
+    expect(tool['function'], {
+      'name': 'get_weather',
+      'description': 'Gets the current weather for a city.',
+      'parameters': {
+        'type': 'object',
+        'properties': {
+          'city': {'type': 'string', 'description': 'City name.'},
+          'units': {
+            'type': 'array',
+            'items': {'type': 'string'},
+          },
+        },
+        'required': ['city'],
+      },
+    });
+  });
+
+  test('executes tools and normalizes responses', () async {
+    final manager = ToolManager(
+      tools: [const _WeatherTool()],
+    );
+
+    final response = await manager.execute(
+      name: 'get_weather',
+      arguments: {'city': 'Mountain View'},
+    );
+
+    expect(response, {
+      'city': 'Mountain View',
+      'days': [1, 2],
+      'custom': '2026-01-02 00:00:00.000Z',
+    });
+  });
+
+  test('parses tool-call arguments encoded as object or string', () {
+    final objectArguments = ToolCall.fromJson({
+      'type': 'function',
+      'function': {
+        'name': 'get_weather',
+        'arguments': {'city': 'Mountain View'},
+      },
+    });
+    final stringArguments = ToolCall.fromJson({
+      'type': 'function',
+      'function': {
+        'name': 'get_weather',
+        'arguments': '{"city":"New York"}',
+      },
+    });
+
+    expect(objectArguments.arguments, {'city': 'Mountain View'});
+    expect(stringArguments.arguments, {'city': 'New York'});
   });
 }

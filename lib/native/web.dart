@@ -7,7 +7,6 @@ import '../litertlm/config.dart';
 import '../litertlm/exceptions.dart';
 import '../litertlm/message.dart';
 import '../litertlm/runtime.dart';
-import '../litertlm/tool.dart';
 import 'runtime.dart';
 
 const _sdkModuleUrl =
@@ -15,9 +14,10 @@ const _sdkModuleUrl =
 const _sdkLoadTimeout = Duration(seconds: 30);
 const _samplerTypeTopP = 2;
 
-LiteRtLmNativeRuntime createRuntime() => LiteRtLmWebRuntime();
+/// Creates the web native runtime.
+LiteRtLmNativeRuntime createRuntime() => _LiteRtLmWebRuntime();
 
-class LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
+class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
   Future<JSObject>? _sdkModule;
 
   @override
@@ -153,11 +153,9 @@ class LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
 
   @override
   Future<int> getTokenCount(ConversationHandle conversation) async {
-    final handle = conversation as _WebConversationHandle;
-    final tokenCount = await _promiseToFuture<JSNumber>(
-      handle.conversation.callMethod<JSPromise<JSNumber>>('getTokenCount'.toJS),
+    throw UnsupportedError(
+      'getTokenCount is not supported by the LiteRT-LM JS SDK.',
     );
-    return tokenCount.toDartInt;
   }
 
   @override
@@ -173,7 +171,9 @@ class LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
   @override
   void deleteConversation(ConversationHandle conversation) {
     final handle = conversation as _WebConversationHandle;
-    _ignoreJsPromise(handle.conversation.callMethod<JSAny?>('delete'.toJS));
+    _ignoreJsPromise(
+      handle.conversation.callMethod<JSPromise<JSAny?>>('delete'.toJS),
+    );
   }
 
   @override
@@ -181,7 +181,7 @@ class LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
     final handle = engine as _WebEngineHandle;
     unawaited(
       handle.engine.then((jsEngine) {
-        _ignoreJsPromise(jsEngine.callMethod<JSAny?>('delete'.toJS));
+        _ignoreJsPromise(jsEngine.callMethod<JSPromise<JSAny?>>('delete'.toJS));
       }),
     );
   }
@@ -244,16 +244,13 @@ return Promise.race([
 
   JSObject _conversationConfigToJs(ConversationConfig config) {
     final sessionConfig = <String, Object?>{};
-    final dartSessionConfig = config.sessionConfig;
-    final loraConfig = dartSessionConfig?.loraConfig;
-    if (loraConfig != null &&
-        (loraConfig.loraPath != null || loraConfig.audioLoraPath != null)) {
+    if (config.loraPath != null || config.audioLoraPath != null) {
       throw UnsupportedError(
         'LoRA config is not supported by the LiteRT-LM JS SDK.',
       );
     }
 
-    final samplerConfig = dartSessionConfig?.samplerConfig;
+    final samplerConfig = config.samplerConfig;
     if (samplerConfig != null) {
       sessionConfig['samplerParams'] = {
         'type': _samplerTypeTopP,
@@ -266,39 +263,28 @@ return Promise.race([
     final jsConfig = <String, Object?>{'sessionConfig': sessionConfig};
     final preface = <String, Object?>{};
     final messages = <Object?>[
-      if (config.systemInstruction != null)
-        Message.systemContents(config.systemInstruction!).toJson(),
+      if (config.systemMessage != null) config.systemMessage!.toJson(),
       ...config.initialMessages.map((message) => message.toJson()),
     ];
     if (messages.isNotEmpty) {
       preface['messages'] = messages;
     }
-    final tools = _toolDescriptionsForPreface(config.tools);
+    final tools = config.tools
+        .map((tool) => tool.getToolDescription())
+        .toList(growable: false);
     if (tools.isNotEmpty) {
       preface['tools'] = tools;
     }
     if (config.extraContext.isNotEmpty) {
-      preface['extraContext'] = config.extraContext;
+      preface['extra_context'] = config.extraContext;
     }
     if (preface.isNotEmpty) {
       jsConfig['preface'] = preface;
     }
+    if (config.enableConstrainedDecoding) {
+      jsConfig['enableConstrainedDecoding'] = true;
+    }
     return _parseJson(jsonEncode(jsConfig));
-  }
-
-  List<Object?> _toolDescriptionsForPreface(List<Tool> tools) {
-    return tools.map((tool) {
-      final json = tool.toJson();
-      final function = json['function'];
-      if (function is Map<String, Object?>) {
-        return {
-          'name': function['name'],
-          if (function['description'] != null) 'description': function['description'],
-          if (function['parameters'] != null) 'parameters': function['parameters'],
-        };
-      }
-      return json;
-    }).toList(growable: false);
   }
 
   String _stringifyJson(JSAny value) {
@@ -314,10 +300,8 @@ return Promise.race([
     }
   }
 
-  void _ignoreJsPromise(JSAny? value) {
-    if (value is JSPromise<JSAny?>) {
-      unawaited(_promiseToFuture<JSAny?>(value).catchError((_) => null));
-    }
+  void _ignoreJsPromise(JSPromise<JSAny?> promise) {
+    unawaited(_promiseToFuture<JSAny?>(promise).catchError((_) => null));
   }
 
   JSObject _startMessageStream(

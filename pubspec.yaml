@@ -1,6 +1,6 @@
 name: litertlm
-description: Unified Flutter package for LiteRT-LM on every platform.
-version: 0.0.2
+description: Native LiteRT-LM bindings for Flutter across mobile, desktop, and web.
+version: 0.0.3
 homepage: https://github.com/yangyuan/litertlm
 
 environment:

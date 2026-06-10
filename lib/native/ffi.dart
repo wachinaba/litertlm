@@ -15,7 +15,10 @@ const _nativeFfiSupportAssetName =
     'package:litertlm/src/native_ffi_support.dart';
 const _samplerTypeTopP = 2;
 
-class LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
+/// Creates the FFI-backed native runtime.
+LiteRtLmNativeRuntime createFfiRuntime() => _LiteRtLmFfiRuntime();
+
+class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
   @override
   EngineHandle createEngine(EngineConfig config) {
     final modelPath = config.modelPath.toNativeUtf8();
@@ -120,7 +123,7 @@ class LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
         );
       }
 
-      _applySessionConfig(sessionConfig, config.sessionConfig);
+      _applySessionConfig(sessionConfig, config);
 
       _conversationConfigSetSessionConfig(conversationConfig, sessionConfig);
       _applyConversationConfig(conversationConfig, config);
@@ -322,12 +325,8 @@ class LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
 
   void _applySessionConfig(
     Pointer<Opaque> sessionConfig,
-    SessionConfig? config,
+    ConversationConfig config,
   ) {
-    if (config == null) {
-      return;
-    }
-
     final samplerConfig = config.samplerConfig;
     if (samplerConfig != null) {
       final samplerParams = calloc<_LiteRtLmSamplerParams>();
@@ -344,19 +343,12 @@ class LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
       }
     }
 
-    final loraConfig = config.loraConfig;
-    if (loraConfig != null) {
-      _setLoraPath(
-        sessionConfig,
-        loraConfig.loraPath,
-        _sessionConfigSetLoraPath,
-      );
-      _setLoraPath(
-        sessionConfig,
-        loraConfig.audioLoraPath,
-        _sessionConfigSetAudioLoraPath,
-      );
-    }
+    _setLoraPath(sessionConfig, config.loraPath, _sessionConfigSetLoraPath);
+    _setLoraPath(
+      sessionConfig,
+      config.audioLoraPath,
+      _sessionConfigSetAudioLoraPath,
+    );
   }
 
   void _setLoraPath(
@@ -403,12 +395,10 @@ class LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
     Pointer<Opaque> conversationConfig,
     ConversationConfig config,
   ) {
-    final systemInstruction = config.systemInstruction;
-    if (systemInstruction != null) {
-      final systemMessage = Message.systemContents(
-        systemInstruction,
-      ).toJsonString();
-      _withNativeUtf8(systemMessage, (pointer) {
+    final systemMessage = config.systemMessage;
+    if (systemMessage != null) {
+      final systemMessageJson = systemMessage.toJsonString();
+      _withNativeUtf8(systemMessageJson, (pointer) {
         _conversationConfigSetSystemMessage(conversationConfig, pointer);
       });
     }
@@ -423,7 +413,9 @@ class LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
     }
 
     if (config.tools.isNotEmpty) {
-      final tools = config.tools.map((tool) => tool.toJson()).toList(growable: false);
+      final tools = config.tools
+          .map((tool) => tool.getToolDescription())
+          .toList(growable: false);
       _withNativeUtf8(jsonEncode(tools), (pointer) {
         _conversationConfigSetTools(conversationConfig, pointer);
       });
@@ -433,6 +425,10 @@ class LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
       _withNativeUtf8(jsonEncode(config.extraContext), (pointer) {
         _conversationConfigSetExtraContext(conversationConfig, pointer);
       });
+    }
+
+    if (config.enableConstrainedDecoding) {
+      _conversationConfigSetEnableConstrainedDecoding(conversationConfig, true);
     }
   }
 
@@ -553,6 +549,7 @@ typedef _ConversationConfigSetSessionConfigNative =
     Void Function(Pointer<Opaque>, Pointer<Opaque>);
 typedef _ConversationConfigSetJsonNative =
     Void Function(Pointer<Opaque>, Pointer<Utf8>);
+typedef _ConversationConfigSetBoolNative = Void Function(Pointer<Opaque>, Bool);
 typedef _ConversationCreateNative =
     Pointer<Opaque> Function(Pointer<Opaque>, Pointer<Opaque>);
 typedef _ConversationSendMessageNative =
@@ -762,6 +759,15 @@ external void _conversationConfigSetTools(
 external void _conversationConfigSetExtraContext(
   Pointer<Opaque> config,
   Pointer<Utf8> extraContextJson,
+);
+
+@Native<_ConversationConfigSetBoolNative>(
+  symbol: 'litert_lm_conversation_config_set_enable_constrained_decoding',
+  assetId: _codeAssetName,
+)
+external void _conversationConfigSetEnableConstrainedDecoding(
+  Pointer<Opaque> config,
+  bool enableConstrainedDecoding,
 );
 
 @Native<Void Function(Pointer<Opaque>)>(
