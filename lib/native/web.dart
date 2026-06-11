@@ -3,10 +3,12 @@ import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 
+import '../litertlm/benchmark.dart';
 import '../litertlm/config.dart';
 import '../litertlm/exceptions.dart';
 import '../litertlm/message.dart';
 import '../litertlm/runtime.dart';
+import '../litertlm/session.dart';
 import 'runtime.dart';
 
 const _sdkModuleUrl =
@@ -22,6 +24,12 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
 
   @override
   EngineHandle createEngine(EngineConfig config) {
+    if (config.maxNumImages != null) {
+      throw UnsupportedError(
+        'maxNumImages is not supported by the LiteRT-LM JS SDK.',
+      );
+    }
+
     final jsEngine = _loadSdk()
         .timeout(
           _sdkLoadTimeout,
@@ -35,9 +43,24 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
             'backend': _backendValue(sdk, config.backend),
           };
 
+          final mainExecutorSettings = <String, Object?>{};
           final maxNumTokens = config.maxNumTokens;
           if (maxNumTokens != null) {
-            settings['mainExecutorSettings'] = {'maxNumTokens': maxNumTokens};
+            mainExecutorSettings['maxNumTokens'] = maxNumTokens;
+          }
+          final threadCount = switch (config.backend) {
+            CpuBackend(:final threadCount) => threadCount,
+            _ => null,
+          };
+          if (threadCount != null) {
+            mainExecutorSettings['backendConfig'] = {
+              'kv_increment_size': 16,
+              'prefill_chunk_size': -1,
+              'number_of_threads': threadCount,
+            };
+          }
+          if (mainExecutorSettings.isNotEmpty) {
+            settings['mainExecutorSettings'] = mainExecutorSettings;
           }
 
           final engineConstructor = sdk.getProperty<JSObject>('Engine'.toJS);
@@ -49,6 +72,34 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
           );
         });
     return _WebEngineHandle(jsEngine);
+  }
+
+  @override
+  CapabilitiesHandle createCapabilities(String modelPath) {
+    throw UnsupportedError(
+      'Capabilities is not supported by the LiteRT-LM JS SDK.',
+    );
+  }
+
+  @override
+  bool hasSpeculativeDecodingSupport(CapabilitiesHandle capabilities) {
+    throw UnsupportedError(
+      'Capabilities is not supported by the LiteRT-LM JS SDK.',
+    );
+  }
+
+  @override
+  void deleteCapabilities(CapabilitiesHandle capabilities) {}
+
+  @override
+  Future<BenchmarkInfo> benchmark(
+    EngineConfig config, {
+    required int prefillTokens,
+    required int decodeTokens,
+  }) async {
+    throw UnsupportedError(
+      'benchmark is not supported by the LiteRT-LM JS SDK.',
+    );
   }
 
   @override
@@ -70,6 +121,21 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
       ),
     );
     return _WebConversationHandle(conversation);
+  }
+
+  @override
+  Future<SessionHandle> createSession(
+    EngineHandle engine,
+    SessionConfig config,
+  ) async {
+    final jsEngine = await (engine as _WebEngineHandle).engine;
+    final session = await _promiseToFuture<JSObject>(
+      jsEngine.callMethod<JSPromise<JSObject>>(
+        'createSession'.toJS,
+        _sessionConfigToJs(config),
+      ),
+    );
+    return _WebSessionHandle(session);
   }
 
   @override
@@ -110,34 +176,26 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
     }
     final jsConversation = conversation as _WebConversationHandle;
     late StreamController<Message> controller;
-    JSObject? streamCallback;
+    JSObject? streamReader;
+    var isCancelled = false;
 
     controller = StreamController<Message>(
       onListen: () {
-        final onChunk = ((JSAny chunk) {
-          controller.add(Message.fromJsonString(_stringifyJson(chunk)));
-        }).toJS;
-        final onError = ((JSAny error) {
-          controller.addError(LiteRtLmException(error.toString()));
-          unawaited(controller.close());
-        }).toJS;
-        final onDone = (() {
-          unawaited(controller.close());
-        }).toJS;
-
-        streamCallback = _startMessageStream(
+        streamReader = _messageStreamReader(
           jsConversation.conversation,
           _parseJson(messageJson),
-          onChunk,
-          onError,
-          onDone,
+        );
+        unawaited(
+          _pumpMessageStream(streamReader!, controller, () => isCancelled),
         );
       },
       onCancel: () {
-        final callback = streamCallback;
-        if (callback != null) {
-          callback.callMethod<JSAny?>('cancel'.toJS);
+        isCancelled = true;
+        final reader = streamReader;
+        if (reader != null) {
+          _ignoreJsPromise(reader.callMethod<JSPromise<JSAny?>>('cancel'.toJS));
         }
+        jsConversation.conversation.callMethod<JSAny?>('cancel'.toJS);
         return null;
       },
     );
@@ -152,9 +210,68 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
   }
 
   @override
+  Future<void> runSessionPrefill(
+    SessionHandle session,
+    List<InputData> inputData,
+  ) async {
+    final handle = session as _WebSessionHandle;
+    await _promiseToFuture<JSAny?>(
+      handle.session.callMethod<JSPromise<JSAny?>>(
+        'runPrefill'.toJS,
+        _parseJson(jsonEncode(_inputDataToWebTextList(inputData))),
+      ),
+    );
+  }
+
+  @override
+  Future<String> runSessionDecode(SessionHandle session) async {
+    final handle = session as _WebSessionHandle;
+    final responses = await _promiseToFuture<JSObject>(
+      handle.session.callMethod<JSPromise<JSObject>>('runDecode'.toJS),
+    );
+    return _responsesFirstText(responses);
+  }
+
+  @override
+  Future<String> generateSessionContent(
+    SessionHandle session,
+    List<InputData> inputData,
+  ) async {
+    await runSessionPrefill(session, inputData);
+    return runSessionDecode(session);
+  }
+
+  @override
+  Stream<String> generateSessionContentStream(
+    SessionHandle session,
+    List<InputData> inputData,
+  ) {
+    return Stream.error(
+      UnsupportedError(
+        'Session.generateContentStream is not supported by the LiteRT-LM JS SDK.',
+      ),
+    );
+  }
+
+  @override
+  void cancelSession(SessionHandle session) {
+    final handle = session as _WebSessionHandle;
+    handle.session.callMethod<JSAny?>('cancel'.toJS);
+  }
+
+  @override
   Future<int> getTokenCount(ConversationHandle conversation) async {
     throw UnsupportedError(
       'getTokenCount is not supported by the LiteRT-LM JS SDK.',
+    );
+  }
+
+  @override
+  Future<BenchmarkInfo> getBenchmarkInfo(
+    ConversationHandle conversation,
+  ) async {
+    throw UnsupportedError(
+      'getBenchmarkInfo is not supported by the LiteRT-LM JS SDK.',
     );
   }
 
@@ -173,6 +290,14 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
     final handle = conversation as _WebConversationHandle;
     _ignoreJsPromise(
       handle.conversation.callMethod<JSPromise<JSAny?>>('delete'.toJS),
+    );
+  }
+
+  @override
+  void deleteSession(SessionHandle session) {
+    final handle = session as _WebSessionHandle;
+    _ignoreJsPromise(
+      handle.session.callMethod<JSPromise<JSAny?>>('delete'.toJS),
     );
   }
 
@@ -228,10 +353,10 @@ return Promise.race([
   int _backendValue(JSObject sdk, Backend backend) {
     final backends = sdk.getProperty<JSObject>('Backend'.toJS);
     return switch (backend) {
-      Backend.cpu => backends.getProperty<JSNumber>('CPU'.toJS).toDartInt,
-      Backend.gpu =>
+      CpuBackend() => backends.getProperty<JSNumber>('CPU'.toJS).toDartInt,
+      GpuBackend() =>
         backends.getProperty<JSNumber>('GPU_ARTISAN'.toJS).toDartInt,
-      Backend.npu => throw UnsupportedError(
+      NpuBackend() => throw UnsupportedError(
         'NPU backend is not supported by the LiteRT-LM JS SDK.',
       ),
     };
@@ -243,24 +368,22 @@ return Promise.race([
   }
 
   JSObject _conversationConfigToJs(ConversationConfig config) {
-    final sessionConfig = <String, Object?>{};
-    if (config.loraPath != null || config.audioLoraPath != null) {
+    final dartSessionConfig = config.sessionConfig;
+    final loraConfig = dartSessionConfig?.loraConfig;
+    if (loraConfig?.loraPath != null || loraConfig?.audioLoraPath != null) {
       throw UnsupportedError(
         'LoRA config is not supported by the LiteRT-LM JS SDK.',
       );
     }
-
-    final samplerConfig = config.samplerConfig;
-    if (samplerConfig != null) {
-      sessionConfig['samplerParams'] = {
-        'type': _samplerTypeTopP,
-        'k': samplerConfig.topK,
-        'p': samplerConfig.topP,
-        'temperature': samplerConfig.temperature,
-        'seed': samplerConfig.seed,
-      };
+    if (config.channels != null) {
+      throw UnsupportedError(
+        'ConversationConfig.channels is not supported by the LiteRT-LM JS SDK.',
+      );
     }
-    final jsConfig = <String, Object?>{'sessionConfig': sessionConfig};
+
+    final jsConfig = <String, Object?>{
+      'sessionConfig': _sessionConfigToJson(dartSessionConfig),
+    };
     final preface = <String, Object?>{};
     final messages = <Object?>[
       if (config.systemMessage != null) config.systemMessage!.toJson(),
@@ -287,6 +410,58 @@ return Promise.race([
     return _parseJson(jsonEncode(jsConfig));
   }
 
+  JSObject _sessionConfigToJs(SessionConfig config) {
+    return _parseJson(jsonEncode(_sessionConfigToJson(config)));
+  }
+
+  Map<String, Object?> _sessionConfigToJson(SessionConfig? config) {
+    final loraConfig = config?.loraConfig;
+    if (loraConfig?.loraPath != null || loraConfig?.audioLoraPath != null) {
+      throw UnsupportedError(
+        'LoRA config is not supported by the LiteRT-LM JS SDK.',
+      );
+    }
+
+    final samplerConfig = config?.samplerConfig;
+    return {
+      if (samplerConfig != null)
+        'samplerParams': {
+          'type': _samplerTypeTopP,
+          'k': samplerConfig.topK,
+          'p': samplerConfig.topP,
+          'temperature': samplerConfig.temperature,
+          'seed': samplerConfig.seed,
+        },
+    };
+  }
+
+  List<String> _inputDataToWebTextList(List<InputData> inputData) {
+    return inputData
+        .map((input) {
+          return switch (input) {
+            TextInputData(:final text) => text,
+            ImageInputData() => throw UnsupportedError(
+              'Session image input is not supported by the LiteRT-LM JS SDK.',
+            ),
+            AudioInputData() => throw UnsupportedError(
+              'Session audio input is not supported by the LiteRT-LM JS SDK.',
+            ),
+          };
+        })
+        .toList(growable: false);
+  }
+
+  String _responsesFirstText(JSObject responses) {
+    try {
+      final texts = responses
+          .callMethod<JSArray<JSString>>('getTexts'.toJS)
+          .toDart;
+      return texts.isEmpty ? '' : texts.first.toDart;
+    } finally {
+      responses.callMethod<JSAny?>('delete'.toJS);
+    }
+  }
+
   String _stringifyJson(JSAny value) {
     final json = globalContext.getProperty<JSObject>('JSON'.toJS);
     return json.callMethod<JSString>('stringify'.toJS, value).toDart;
@@ -304,56 +479,45 @@ return Promise.race([
     unawaited(_promiseToFuture<JSAny?>(promise).catchError((_) => null));
   }
 
-  JSObject _startMessageStream(
-    JSObject conversation,
-    JSObject message,
-    JSFunction onChunk,
-    JSFunction onError,
-    JSFunction onDone,
-  ) {
-    final args = _parseJson('{}');
-    args.setProperty('conversation'.toJS, conversation);
-    args.setProperty('message'.toJS, message);
-    args.setProperty('onChunk'.toJS, onChunk);
-    args.setProperty('onError'.toJS, onError);
-    args.setProperty('onDone'.toJS, onDone);
-
-    final starter = _newFunction(
-      'args'.toJS,
-      r'''
-const { conversation, message, onChunk, onError, onDone } = args;
-const stream = conversation.sendMessageStreaming(message);
-const reader = stream.getReader();
-let isCancelled = false;
-
-function pump() {
-  reader.read().then(({ value, done }) => {
-    if (isCancelled) return;
-    if (done) {
-      onDone();
-      return;
-    }
-    onChunk(value);
-    pump();
-  }).catch((error) => {
-    if (!isCancelled) onError(error);
-  });
-}
-
-pump();
-return {
-  cancel() {
-    isCancelled = true;
-    reader.cancel();
-    if (typeof conversation.cancel === 'function') {
-      conversation.cancel();
-    }
-  }
-};
-'''
-          .toJS,
+  JSObject _messageStreamReader(JSObject conversation, JSObject message) {
+    final stream = conversation.callMethod<JSObject>(
+      'sendMessageStreaming'.toJS,
+      message,
     );
-    return starter.callAsFunction(null, args) as JSObject;
+    return stream.callMethod<JSObject>('getReader'.toJS);
+  }
+
+  Future<void> _pumpMessageStream(
+    JSObject reader,
+    StreamController<Message> controller,
+    bool Function() isCancelled,
+  ) async {
+    try {
+      while (!isCancelled()) {
+        final result = await _promiseToFuture<JSObject>(
+          reader.callMethod<JSPromise<JSObject>>('read'.toJS),
+        );
+        if (isCancelled()) {
+          return;
+        }
+
+        final isDone = result.getProperty<JSBoolean>('done'.toJS).toDart;
+        if (isDone) {
+          await controller.close();
+          return;
+        }
+
+        final chunk = result.getProperty<JSAny?>('value'.toJS);
+        if (chunk != null) {
+          controller.add(Message.fromJsonString(_stringifyJson(chunk)));
+        }
+      }
+    } catch (error) {
+      if (!isCancelled()) {
+        controller.addError(error);
+        await controller.close();
+      }
+    }
   }
 }
 
@@ -367,6 +531,12 @@ class _WebConversationHandle implements ConversationHandle {
   _WebConversationHandle(this.conversation);
 
   final JSObject conversation;
+}
+
+class _WebSessionHandle implements SessionHandle {
+  _WebSessionHandle(this.session);
+
+  final JSObject session;
 }
 
 @JS('Function')

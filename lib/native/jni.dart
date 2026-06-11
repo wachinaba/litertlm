@@ -1,25 +1,58 @@
 // ignore_for_file: invalid_use_of_internal_member
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:jni/_internal.dart' as jni_internal;
 import 'package:jni/jni.dart';
 
+import '../litertlm/benchmark.dart';
 import '../litertlm/config.dart';
 import '../litertlm/exceptions.dart';
 import '../litertlm/message.dart';
 import '../litertlm/runtime.dart';
+import '../litertlm/session.dart';
 import 'runtime.dart';
 
 /// Creates the JNI-backed native runtime.
 LiteRtLmNativeRuntime createJniRuntime() => _LiteRtLmJniRuntime();
+
+String _encodeInputDataListJson(List<InputData> inputData) {
+  return jsonEncode(inputData.map((input) => input.toJson()).toList());
+}
+
+String _encodeBackendJson(Backend backend) {
+  return jsonEncode({
+    'name': backend.name,
+    if (backend case CpuBackend(:final threadCount?))
+      'threadCount': threadCount,
+    if (backend case NpuBackend(:final nativeLibraryDir?))
+      'nativeLibraryDir': nativeLibraryDir,
+  });
+}
 
 class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
   final _class = JClass.forName('org/rockstudio/litertlm/LiteRtLmJniBridge');
 
   late final _createEngine = _class.staticMethodId(
     'createEngine',
-    '(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;)Lcom/google/ai/edge/litertlm/Engine;',
+    '(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;)Lcom/google/ai/edge/litertlm/Engine;',
+  );
+  late final _createCapabilities = _class.staticMethodId(
+    'createCapabilities',
+    '(Ljava/lang/String;)Lcom/google/ai/edge/litertlm/Capabilities;',
+  );
+  late final _hasSpeculativeDecodingSupport = _class.staticMethodId(
+    'hasSpeculativeDecodingSupport',
+    '(Lcom/google/ai/edge/litertlm/Capabilities;)Z',
+  );
+  late final _deleteCapabilities = _class.staticMethodId(
+    'deleteCapabilities',
+    '(Lcom/google/ai/edge/litertlm/Capabilities;)V',
+  );
+  late final _benchmark = _class.staticMethodId(
+    'benchmark',
+    '(Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;)Ljava/lang/String;',
   );
   late final _initializeEngine = _class.staticMethodId(
     'initializeEngine',
@@ -33,6 +66,10 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
     'createConversation',
     '(Lcom/google/ai/edge/litertlm/Engine;Ljava/lang/String;)Lcom/google/ai/edge/litertlm/Conversation;',
   );
+  late final _createSession = _class.staticMethodId(
+    'createSession',
+    '(Lcom/google/ai/edge/litertlm/Engine;Ljava/lang/String;)Lcom/google/ai/edge/litertlm/Session;',
+  );
   late final _sendMessage = _class.staticMethodId(
     'sendMessage',
     '(Lcom/google/ai/edge/litertlm/Conversation;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;',
@@ -40,6 +77,22 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
   late final _sendMessageStream = _class.staticMethodId(
     'sendMessageStream',
     '(Lcom/google/ai/edge/litertlm/Conversation;Ljava/lang/String;Ljava/lang/String;Lcom/google/ai/edge/litertlm/MessageCallback;)V',
+  );
+  late final _runSessionPrefill = _class.staticMethodId(
+    'runSessionPrefill',
+    '(Lcom/google/ai/edge/litertlm/Session;Ljava/lang/String;)V',
+  );
+  late final _runSessionDecode = _class.staticMethodId(
+    'runSessionDecode',
+    '(Lcom/google/ai/edge/litertlm/Session;)Ljava/lang/String;',
+  );
+  late final _generateSessionContent = _class.staticMethodId(
+    'generateSessionContent',
+    '(Lcom/google/ai/edge/litertlm/Session;Ljava/lang/String;)Ljava/lang/String;',
+  );
+  late final _generateSessionContentStream = _class.staticMethodId(
+    'generateSessionContentStream',
+    '(Lcom/google/ai/edge/litertlm/Session;Ljava/lang/String;Lcom/google/ai/edge/litertlm/ResponseCallback;)V',
   );
   late final _messageToJson = _class.staticMethodId(
     'messageToJson',
@@ -49,9 +102,17 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
     'cancelConversation',
     '(Lcom/google/ai/edge/litertlm/Conversation;)V',
   );
+  late final _cancelSession = _class.staticMethodId(
+    'cancelSession',
+    '(Lcom/google/ai/edge/litertlm/Session;)V',
+  );
   late final _getTokenCount = _class.staticMethodId(
     'getTokenCount',
     '(Lcom/google/ai/edge/litertlm/Conversation;)I',
+  );
+  late final _getBenchmarkInfo = _class.staticMethodId(
+    'getBenchmarkInfo',
+    '(Lcom/google/ai/edge/litertlm/Conversation;)Ljava/lang/String;',
   );
   late final _renderMessageToString = _class.staticMethodId(
     'renderMessageToString',
@@ -61,6 +122,10 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
     'deleteConversation',
     '(Lcom/google/ai/edge/litertlm/Conversation;)V',
   );
+  late final _deleteSession = _class.staticMethodId(
+    'deleteSession',
+    '(Lcom/google/ai/edge/litertlm/Session;)V',
+  );
 
   late final _setMinimumLogLevel = _class.staticMethodId(
     'setMinimumLogLevel',
@@ -69,10 +134,23 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
 
   @override
   EngineHandle createEngine(EngineConfig config) {
+    if (config.enableBenchmark) {
+      throw UnsupportedError(
+        'EngineConfig.enableBenchmark is not supported on Android.',
+      );
+    }
     final modelPath = config.modelPath.toJString();
-    final backend = config.backend.name.toJString();
-    final visionBackend = (config.visionBackend?.name ?? '').toJString();
-    final audioBackend = (config.audioBackend?.name ?? '').toJString();
+    final backend = _encodeBackendJson(config.backend).toJString();
+    final visionBackend =
+        (config.visionBackend == null
+                ? ''
+                : _encodeBackendJson(config.visionBackend!))
+            .toJString();
+    final audioBackend =
+        (config.audioBackend == null
+                ? ''
+                : _encodeBackendJson(config.audioBackend!))
+            .toJString();
     final cacheDir = (config.cacheDir ?? '').toJString();
     try {
       return _JniEngineHandle(
@@ -82,6 +160,7 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
           visionBackend,
           audioBackend,
           JValueInt(config.maxNumTokens ?? _unsetInt),
+          JValueInt(config.maxNumImages ?? _unsetInt),
           cacheDir,
         ]),
       );
@@ -90,6 +169,62 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
       backend.release();
       visionBackend.release();
       audioBackend.release();
+      cacheDir.release();
+    }
+  }
+
+  @override
+  CapabilitiesHandle createCapabilities(String modelPath) {
+    final modelPathString = modelPath.toJString();
+    try {
+      return _JniCapabilitiesHandle(
+        _createCapabilities.call(_class, JObject.type, [modelPathString]),
+      );
+    } finally {
+      modelPathString.release();
+    }
+  }
+
+  @override
+  bool hasSpeculativeDecodingSupport(CapabilitiesHandle capabilities) {
+    final jniCapabilities = capabilities as _JniCapabilitiesHandle;
+    return _hasSpeculativeDecodingSupport.call(_class, jboolean.type, [
+      jniCapabilities.capabilities,
+    ]);
+  }
+
+  @override
+  void deleteCapabilities(CapabilitiesHandle capabilities) {
+    final jniCapabilities = capabilities as _JniCapabilitiesHandle;
+    _deleteCapabilities.call(_class, jvoid.type, [
+      jniCapabilities.capabilities,
+    ]);
+    jniCapabilities.capabilities.release();
+  }
+
+  @override
+  Future<BenchmarkInfo> benchmark(
+    EngineConfig config, {
+    required int prefillTokens,
+    required int decodeTokens,
+  }) async {
+    final modelPath = config.modelPath.toJString();
+    final backend = _encodeBackendJson(config.backend).toJString();
+    final cacheDir = (config.cacheDir ?? '').toJString();
+    try {
+      final benchmarkInfoJson = _benchmark
+          .call(_class, JString.type, [
+            modelPath,
+            backend,
+            JValueInt(prefillTokens),
+            JValueInt(decodeTokens),
+            cacheDir,
+          ])
+          .toDartString(releaseOriginal: true);
+      return BenchmarkInfo.fromJsonString(benchmarkInfoJson);
+    } finally {
+      modelPath.release();
+      backend.release();
       cacheDir.release();
     }
   }
@@ -112,10 +247,29 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
     }
 
     final jniEngine = engine as _JniEngineHandle;
-    final configJson = config.toJsonString().toJString();
+    final configJson = jsonEncode(config.toJson()).toJString();
     try {
       return _JniConversationHandle(
         _createConversation.call(_class, JObject.type, [
+          jniEngine.engine,
+          configJson,
+        ]),
+      );
+    } finally {
+      configJson.release();
+    }
+  }
+
+  @override
+  Future<SessionHandle> createSession(
+    EngineHandle engine,
+    SessionConfig config,
+  ) async {
+    final jniEngine = engine as _JniEngineHandle;
+    final configJson = jsonEncode(config.toJson()).toJString();
+    try {
+      return _JniSessionHandle(
+        _createSession.call(_class, JObject.type, [
           jniEngine.engine,
           configJson,
         ]),
@@ -224,11 +378,124 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
   }
 
   @override
+  Future<void> runSessionPrefill(
+    SessionHandle session,
+    List<InputData> inputData,
+  ) async {
+    final jniSession = session as _JniSessionHandle;
+    final inputDataJson = _encodeInputDataListJson(inputData).toJString();
+    try {
+      _runSessionPrefill.call(_class, jvoid.type, [
+        jniSession.session,
+        inputDataJson,
+      ]);
+    } finally {
+      inputDataJson.release();
+    }
+  }
+
+  @override
+  Future<String> runSessionDecode(SessionHandle session) async {
+    final jniSession = session as _JniSessionHandle;
+    return _runSessionDecode
+        .call(_class, JString.type, [jniSession.session])
+        .toDartString(releaseOriginal: true);
+  }
+
+  @override
+  Future<String> generateSessionContent(
+    SessionHandle session,
+    List<InputData> inputData,
+  ) async {
+    final jniSession = session as _JniSessionHandle;
+    final inputDataJson = _encodeInputDataListJson(inputData).toJString();
+    try {
+      return _generateSessionContent
+          .call(_class, JString.type, [jniSession.session, inputDataJson])
+          .toDartString(releaseOriginal: true);
+    } finally {
+      inputDataJson.release();
+    }
+  }
+
+  @override
+  Stream<String> generateSessionContentStream(
+    SessionHandle session,
+    List<InputData> inputData,
+  ) {
+    final jniSession = session as _JniSessionHandle;
+    JObject? streamCallback;
+    late StreamController<String> controller;
+
+    controller = StreamController<String>(
+      onListen: () {
+        streamCallback = _ResponseCallback.implement(
+          _ResponseCallbackImplementation(
+            onNext: controller.add,
+            onDone: () {
+              unawaited(controller.close());
+              streamCallback?.release();
+              streamCallback = null;
+            },
+            onError: (throwable) {
+              controller.addError(LiteRtLmException(throwable.toString()));
+              unawaited(controller.close());
+              streamCallback?.release();
+              streamCallback = null;
+            },
+          ),
+        );
+        final inputDataJson = _encodeInputDataListJson(inputData).toJString();
+        try {
+          _generateSessionContentStream.call(_class, jvoid.type, [
+            jniSession.session,
+            inputDataJson,
+            streamCallback,
+          ]);
+        } catch (error) {
+          streamCallback?.release();
+          streamCallback = null;
+          controller.addError(error);
+          unawaited(controller.close());
+        } finally {
+          inputDataJson.release();
+        }
+      },
+      onCancel: () {
+        if (streamCallback != null) {
+          _cancelSession.call(_class, jvoid.type, [jniSession.session]);
+          streamCallback?.release();
+          streamCallback = null;
+        }
+      },
+    );
+
+    return controller.stream;
+  }
+
+  @override
+  void cancelSession(SessionHandle session) {
+    final jniSession = session as _JniSessionHandle;
+    _cancelSession.call(_class, jvoid.type, [jniSession.session]);
+  }
+
+  @override
   Future<int> getTokenCount(ConversationHandle conversation) async {
     final jniConversation = conversation as _JniConversationHandle;
     return _getTokenCount.call(_class, jint.type, [
       jniConversation.conversation,
     ]);
+  }
+
+  @override
+  Future<BenchmarkInfo> getBenchmarkInfo(
+    ConversationHandle conversation,
+  ) async {
+    final jniConversation = conversation as _JniConversationHandle;
+    final benchmarkInfoJson = _getBenchmarkInfo
+        .call(_class, JString.type, [jniConversation.conversation])
+        .toDartString(releaseOriginal: true);
+    return BenchmarkInfo.fromJsonString(benchmarkInfoJson);
   }
 
   @override
@@ -257,6 +524,13 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
   }
 
   @override
+  void deleteSession(SessionHandle session) {
+    final jniSession = session as _JniSessionHandle;
+    _deleteSession.call(_class, jvoid.type, [jniSession.session]);
+    jniSession.session.release();
+  }
+
+  @override
   void deleteEngine(EngineHandle engine) {
     final jniEngine = engine as _JniEngineHandle;
     _deleteEngine.call(_class, jvoid.type, [jniEngine.engine]);
@@ -275,10 +549,22 @@ class _JniEngineHandle implements EngineHandle {
   final JObject engine;
 }
 
+class _JniCapabilitiesHandle implements CapabilitiesHandle {
+  _JniCapabilitiesHandle(this.capabilities);
+
+  final JObject capabilities;
+}
+
 class _JniConversationHandle implements ConversationHandle {
   _JniConversationHandle(this.conversation);
 
   final JObject conversation;
+}
+
+class _JniSessionHandle implements SessionHandle {
+  _JniSessionHandle(this.session);
+
+  final JObject session;
 }
 
 class _MessageCallback extends JObject {
@@ -387,6 +673,118 @@ class _MessageCallbackImplementation {
   });
 
   final void Function(JObject message) onMessage;
+  final void Function() onDone;
+  final void Function(JObject throwable) onError;
+}
+
+class _ResponseCallback extends JObject {
+  _ResponseCallback.fromReference(super.reference) : super.fromReference();
+
+  static JObject implement(_ResponseCallbackImplementation implementation) {
+    final implementer = JImplementer();
+    implementIn(implementer, implementation);
+    return implementer.implement<JObject>();
+  }
+
+  static final _implementations = <int, _ResponseCallbackImplementation>{};
+
+  static jni_internal.JObjectPtr _invoke(
+    int port,
+    jni_internal.JObjectPtr descriptor,
+    jni_internal.JObjectPtr args,
+  ) {
+    return _invokeMethod(
+      port,
+      jni_internal.MethodInvocation.fromAddresses(
+        0,
+        descriptor.address,
+        args.address,
+      ),
+    );
+  }
+
+  static final jni_internal.Pointer<
+    jni_internal.NativeFunction<
+      jni_internal.JObjectPtr Function(
+        jni_internal.Int64,
+        jni_internal.JObjectPtr,
+        jni_internal.JObjectPtr,
+      )
+    >
+  >
+  _invokePointer = jni_internal.Pointer.fromFunction(_invoke);
+
+  static jni_internal.JObjectPtr _invokeMethod(
+    int port,
+    jni_internal.MethodInvocation invocation,
+  ) {
+    try {
+      final descriptor = invocation.methodDescriptor.toDartString(
+        releaseOriginal: true,
+      );
+      final args = invocation.args;
+      final implementation = _implementations[port]!;
+
+      if (descriptor == r'onNext(Ljava/lang/String;)V') {
+        implementation.onNext(
+          (args![0]! as JString).toDartString(releaseOriginal: false),
+        );
+        return jni_internal.nullptr;
+      }
+      if (descriptor == r'onDone()V') {
+        implementation.onDone();
+        return jni_internal.nullptr;
+      }
+      if (descriptor == r'onError(Ljava/lang/Throwable;)V') {
+        implementation.onError(args![0]!);
+        return jni_internal.nullptr;
+      }
+      throw LiteRtLmException('Unknown ResponseCallback method: $descriptor');
+    } catch (error) {
+      return jni_internal.ProtectedJniExtensions.newDartException(error);
+    }
+  }
+
+  static void implementIn(
+    JImplementer implementer,
+    _ResponseCallbackImplementation implementation,
+  ) {
+    late final jni_internal.RawReceivePort port;
+    port = jni_internal.RawReceivePort((message) {
+      if (message == null) {
+        _implementations.remove(port.sendPort.nativePort);
+        port.close();
+        return;
+      }
+      final invocation = jni_internal.MethodInvocation.fromMessage(message);
+      final result = _invokeMethod(port.sendPort.nativePort, invocation);
+      jni_internal.ProtectedJniExtensions.returnResult(
+        invocation.result,
+        result,
+      );
+    });
+    implementer.add(
+      'com.google.ai.edge.litertlm.ResponseCallback',
+      port,
+      _invokePointer,
+      const [
+        r'onNext(Ljava/lang/String;)V',
+        r'onDone()V',
+        r'onError(Ljava/lang/Throwable;)V',
+      ],
+    );
+    _implementations[port.sendPort.nativePort] = implementation;
+  }
+}
+
+class _ResponseCallbackImplementation {
+  _ResponseCallbackImplementation({
+    required this.onNext,
+    required this.onDone,
+    required this.onError,
+  });
+
+  final void Function(String response) onNext;
   final void Function() onDone;
   final void Function(JObject throwable) onError;
 }

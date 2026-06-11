@@ -112,9 +112,6 @@ class Message {
     };
   }
 
-  /// Converts this message to a JSON string.
-  String toJsonString() => jsonEncode(toJson());
-
   @override
   String toString() => text;
 }
@@ -167,9 +164,6 @@ class Contents {
 
   /// Converts this contents object to JSON-compatible values.
   Object toJson() => values.map((content) => content.toJson()).toList();
-
-  /// Converts this contents object to a JSON string.
-  String toJsonString() => jsonEncode(toJson());
 }
 
 /// Tool call returned by the model.

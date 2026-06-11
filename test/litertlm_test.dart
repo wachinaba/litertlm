@@ -55,8 +55,9 @@ void main() {
   test('exports engine config API', () {
     final config = EngineConfig(modelPath: 'model.litertlm');
 
-    expect(config.backend, Backend.cpu);
+    expect(config.backend, const Backend.cpu());
     expect(config.modelPath, 'model.litertlm');
+    expect(config.enableBenchmark, isFalse);
   });
 
   test('serializes rich messages', () {
@@ -85,13 +86,16 @@ void main() {
       systemMessage: Message.system('be concise'),
       initialMessages: [Message.user('hello')],
       extraContext: {'locale': 'en-US'},
-      samplerConfig: SamplerConfig(topK: 8, topP: 0.9, temperature: 0.7),
-      loraPath: 'adapter.bin',
+      sessionConfig: SessionConfig(
+        samplerConfig: SamplerConfig(topK: 8, topP: 0.9, temperature: 0.7),
+        loraConfig: LoraConfig(loraPath: 'adapter.bin'),
+      ),
       automaticToolCalling: false,
       enableConstrainedDecoding: true,
     );
 
-    final json = jsonDecode(config.toJsonString()) as Map<String, Object?>;
+    final json =
+        jsonDecode(jsonEncode(config.toJson())) as Map<String, Object?>;
     expect(json['systemMessage'], {
       'role': 'system',
       'content': [
@@ -100,15 +104,30 @@ void main() {
     });
     expect(json['initialMessages'], isA<List<Object?>>());
     expect(json['extraContext'], {'locale': 'en-US'});
-    expect(json['samplerConfig'], {
+    final sessionConfig = json['sessionConfig'] as Map<String, Object?>;
+    expect(sessionConfig['samplerConfig'], {
       'topK': 8,
       'topP': 0.9,
       'temperature': 0.7,
       'seed': 0,
     });
-    expect(json['loraPath'], 'adapter.bin');
+    expect(sessionConfig['loraConfig'], {'loraPath': 'adapter.bin'});
     expect(json['automaticToolCalling'], false);
     expect(json['enableConstrainedDecoding'], true);
+  });
+
+  test('serializes session input data', () {
+    final json = [
+      InputData.text('hello'),
+      InputData.imageBytes(Uint8List.fromList([1, 2, 3])),
+      InputData.audioBytes(Uint8List.fromList([4, 5])),
+    ].map((input) => input.toJson()).toList();
+
+    expect(json, [
+      {'type': 'text', 'text': 'hello'},
+      {'type': 'image', 'blob': 'AQID'},
+      {'type': 'audio', 'blob': 'BAU='},
+    ]);
   });
 
   test('serializes executable tool descriptions', () {
@@ -135,9 +154,7 @@ void main() {
   });
 
   test('executes tools and normalizes responses', () async {
-    final manager = ToolManager(
-      tools: [const _WeatherTool()],
-    );
+    final manager = ToolManager(tools: [const _WeatherTool()]);
 
     final response = await manager.execute(
       name: 'get_weather',
@@ -161,10 +178,7 @@ void main() {
     });
     final stringArguments = ToolCall.fromJson({
       'type': 'function',
-      'function': {
-        'name': 'get_weather',
-        'arguments': '{"city":"New York"}',
-      },
+      'function': {'name': 'get_weather', 'arguments': '{"city":"New York"}'},
     });
 
     expect(objectArguments.arguments, {'city': 'Mountain View'});

@@ -2,6 +2,9 @@ package org.rockstudio.litertlm
 
 import android.util.Base64
 import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.BenchmarkInfo
+import com.google.ai.edge.litertlm.Capabilities
+import com.google.ai.edge.litertlm.Channel
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Conversation
@@ -9,13 +12,17 @@ import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.ExperimentalApi
+import com.google.ai.edge.litertlm.InputData
 import com.google.ai.edge.litertlm.LogSeverity
 import com.google.ai.edge.litertlm.LoraConfig
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.OpenApiTool
 import com.google.ai.edge.litertlm.SamplerConfig
+import com.google.ai.edge.litertlm.Session
+import com.google.ai.edge.litertlm.SessionConfig
 import com.google.ai.edge.litertlm.ToolCall
+import com.google.ai.edge.litertlm.benchmark as runBenchmark
 import com.google.ai.edge.litertlm.tool
 import org.json.JSONArray
 import org.json.JSONObject
@@ -28,6 +35,7 @@ object LiteRtLmJniBridge {
         visionBackend: String,
         audioBackend: String,
         maxNumTokens: Int,
+        maxNumImages: Int,
         cacheDir: String,
     ): Engine {
         return Engine(
@@ -37,6 +45,42 @@ object LiteRtLmJniBridge {
                 visionBackend = visionBackend.takeIf { it.isNotEmpty() }?.let(::parseBackend),
                 audioBackend = audioBackend.takeIf { it.isNotEmpty() }?.let(::parseBackend),
                 maxNumTokens = maxNumTokens.takeUnless { it == Int.MIN_VALUE },
+                maxNumImages = maxNumImages.takeUnless { it == Int.MIN_VALUE },
+                cacheDir = cacheDir.takeIf { it.isNotEmpty() },
+            ),
+        )
+    }
+
+    @JvmStatic
+    fun createCapabilities(modelPath: String): Capabilities {
+        return Capabilities(modelPath)
+    }
+
+    @JvmStatic
+    fun hasSpeculativeDecodingSupport(capabilities: Capabilities): Boolean {
+        return capabilities.hasSpeculativeDecodingSupport()
+    }
+
+    @JvmStatic
+    fun deleteCapabilities(capabilities: Capabilities) {
+        capabilities.close()
+    }
+
+    @JvmStatic
+    @OptIn(ExperimentalApi::class)
+    fun benchmark(
+        modelPath: String,
+        backend: String,
+        prefillTokens: Int,
+        decodeTokens: Int,
+        cacheDir: String,
+    ): String {
+        return benchmarkInfoToJson(
+            runBenchmark(
+                modelPath = modelPath,
+                backend = parseBackend(backend),
+                prefillTokens = prefillTokens,
+                decodeTokens = decodeTokens,
                 cacheDir = cacheDir.takeIf { it.isNotEmpty() },
             ),
         )
@@ -53,6 +97,11 @@ object LiteRtLmJniBridge {
     }
 
     @JvmStatic
+    fun createSession(engine: Engine, configJson: String): Session {
+        return engine.createSession(parseSessionConfig(configJson))
+    }
+
+    @JvmStatic
     fun sendMessage(conversation: Conversation, messageJson: String, extraContextJson: String): String {
         val response = conversation.sendMessage(parseMessage(JSONObject(messageJson)), parseMap(extraContextJson))
         return messageToJson(response)
@@ -66,6 +115,35 @@ object LiteRtLmJniBridge {
         callback: MessageCallback,
     ) {
         conversation.sendMessageAsync(parseMessage(JSONObject(messageJson)), callback, parseMap(extraContextJson))
+    }
+
+    @JvmStatic
+    fun runSessionPrefill(session: Session, inputDataJson: String) {
+        session.runPrefill(parseInputDataList(inputDataJson))
+    }
+
+    @JvmStatic
+    fun runSessionDecode(session: Session): String {
+        return session.runDecode()
+    }
+
+    @JvmStatic
+    fun generateSessionContent(session: Session, inputDataJson: String): String {
+        return session.generateContent(parseInputDataList(inputDataJson))
+    }
+
+    @JvmStatic
+    fun generateSessionContentStream(
+        session: Session,
+        inputDataJson: String,
+        callback: com.google.ai.edge.litertlm.ResponseCallback,
+    ) {
+        session.generateContentStream(parseInputDataList(inputDataJson), callback)
+    }
+
+    @JvmStatic
+    fun cancelSession(session: Session) {
+        session.cancelProcess()
     }
 
     @JvmStatic
@@ -98,6 +176,23 @@ object LiteRtLmJniBridge {
 
     @JvmStatic
     @OptIn(ExperimentalApi::class)
+    fun getBenchmarkInfo(conversation: Conversation): String {
+        return benchmarkInfoToJson(conversation.getBenchmarkInfo())
+    }
+
+    private fun benchmarkInfoToJson(benchmarkInfo: BenchmarkInfo): String {
+        return JSONObject().apply {
+            put("initTimeInSecond", benchmarkInfo.initTimeInSecond)
+            put("timeToFirstTokenInSecond", benchmarkInfo.timeToFirstTokenInSecond)
+            put("lastPrefillTokenCount", benchmarkInfo.lastPrefillTokenCount)
+            put("lastDecodeTokenCount", benchmarkInfo.lastDecodeTokenCount)
+            put("lastPrefillTokensPerSecond", benchmarkInfo.lastPrefillTokensPerSecond)
+            put("lastDecodeTokensPerSecond", benchmarkInfo.lastDecodeTokensPerSecond)
+        }.toString()
+    }
+
+    @JvmStatic
+    @OptIn(ExperimentalApi::class)
     fun renderMessageToString(conversation: Conversation, messageJson: String): String {
         return conversation.renderMessageIntoString(parseMessage(JSONObject(messageJson)))
     }
@@ -105,6 +200,11 @@ object LiteRtLmJniBridge {
     @JvmStatic
     fun deleteConversation(conversation: Conversation) {
         conversation.close()
+    }
+
+    @JvmStatic
+    fun deleteSession(session: Session) {
+        session.close()
     }
 
     @JvmStatic
@@ -127,32 +227,72 @@ object LiteRtLmJniBridge {
         )
     }
 
-    private fun parseBackend(name: String): Backend {
+    private fun parseBackend(value: String): Backend {
+        val json = JSONObject(value)
+        return parseBackend(
+            json.getString("name"),
+            json.optInt("threadCount", Int.MIN_VALUE).takeUnless { it == Int.MIN_VALUE },
+            json.optString("nativeLibraryDir").takeIf { it.isNotEmpty() },
+        )
+    }
+
+    private fun parseBackend(name: String, threadCount: Int?, nativeLibraryDir: String?): Backend {
         return when (name.lowercase()) {
             "gpu" -> Backend.GPU()
-            "npu" -> Backend.NPU()
-            else -> Backend.CPU()
+            "npu" -> Backend.NPU(nativeLibraryDir ?: "")
+            else -> Backend.CPU(threadCount)
         }
     }
 
     private fun parseConversationConfig(configJson: String): ConversationConfig {
         val json = JSONObject(configJson.ifBlank { "{}" })
         val systemMessage = json.optJSONObject("systemMessage")
-        val loraPath = json.optString("loraPath").takeIf { it.isNotEmpty() }
-        val audioLoraPath = json.optString("audioLoraPath").takeIf { it.isNotEmpty() }
+        val sessionConfig = json.optJSONObject("sessionConfig")
         return ConversationConfig(
             systemInstruction = systemMessage?.let { parseMessage(it).contents },
             initialMessages = parseMessages(json.optJSONArray("initialMessages")),
             tools = parseTools(json.optJSONArray("tools")),
             extraContext = parseMap(json.optJSONObject("extraContext")),
-            samplerConfig = json.optJSONObject("samplerConfig")?.let(::parseSamplerConfig),
-            loraConfig = if (loraPath != null || audioLoraPath != null) {
-                LoraConfig(loraPath = loraPath, audioLoraPath = audioLoraPath)
-            } else {
-                null
-            },
+            samplerConfig = sessionConfig?.optJSONObject("samplerConfig")?.let(::parseSamplerConfig),
+            loraConfig = parseLoraConfig(sessionConfig?.optJSONObject("loraConfig")),
             automaticToolCalling = false,
+            channels = parseChannels(json.optJSONArray("channels")),
         )
+    }
+
+    private fun parseSessionConfig(configJson: String): SessionConfig {
+        val json = JSONObject(configJson.ifBlank { "{}" })
+        return SessionConfig(
+            samplerConfig = json.optJSONObject("samplerConfig")?.let(::parseSamplerConfig),
+            loraConfig = parseLoraConfig(json.optJSONObject("loraConfig")),
+        )
+    }
+
+    private fun parseLoraConfig(json: JSONObject?): LoraConfig? {
+        if (json == null) return null
+        val loraPath = json.optString("loraPath").takeIf { it.isNotEmpty() }
+        val audioLoraPath = json.optString("audioLoraPath").takeIf { it.isNotEmpty() }
+        return if (loraPath != null || audioLoraPath != null) {
+            LoraConfig(loraPath = loraPath, audioLoraPath = audioLoraPath)
+        } else {
+            null
+        }
+    }
+
+    private fun parseChannels(json: JSONArray?): List<Channel>? {
+        if (json == null) return null
+        return buildList {
+            for (index in 0 until json.length()) {
+                val channel = json.getJSONObject(index)
+                add(
+                    Channel(
+                        channelName = channel.getString("channel_name"),
+                        start = channel.getString("start"),
+                        end = channel.getString("end"),
+                    ),
+                )
+            }
+        }
     }
 
     private fun parseTools(json: JSONArray?): List<com.google.ai.edge.litertlm.ToolProvider> {
@@ -186,6 +326,25 @@ object LiteRtLmJniBridge {
             for (index in 0 until json.length()) {
                 add(parseMessage(json.getJSONObject(index)))
             }
+        }
+    }
+
+    private fun parseInputDataList(jsonString: String): List<InputData> {
+        if (jsonString.isBlank()) return emptyList()
+        val json = JSONArray(jsonString)
+        return buildList {
+            for (index in 0 until json.length()) {
+                add(parseInputData(json.getJSONObject(index)))
+            }
+        }
+    }
+
+    private fun parseInputData(json: JSONObject): InputData {
+        return when (json.optString("type")) {
+            "text" -> InputData.Text(json.optString("text"))
+            "image" -> InputData.Image(Base64.decode(json.getString("blob"), Base64.DEFAULT))
+            "audio" -> InputData.Audio(Base64.decode(json.getString("blob"), Base64.DEFAULT))
+            else -> InputData.Text(json.toString())
         }
     }
 

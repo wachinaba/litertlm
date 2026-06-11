@@ -1,3 +1,12 @@
+## 0.0.4
+
+* Added `maxNumImages` for `EngineConfig`.
+* Added `Channel` for supported platforms.
+* Added `Session`, `SessionConfig`, and advanced session control.
+* Added model capabilities check.
+* Added benchmark support.
+* Improved `Backend` control.
+
 ## 0.0.3
 
 * Improved `ConversationConfig`, `Tool` with Swift/Java matching contract.

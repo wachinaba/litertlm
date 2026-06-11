@@ -1,13 +1,17 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
+import 'dart:io' show Platform;
+import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
+import '../litertlm/benchmark.dart';
 import '../litertlm/config.dart';
 import '../litertlm/exceptions.dart';
 import '../litertlm/message.dart';
 import '../litertlm/runtime.dart';
+import '../litertlm/session.dart';
 import 'runtime.dart';
 
 const _codeAssetName = 'package:litertlm/native/ffi.dart';
@@ -21,6 +25,98 @@ LiteRtLmNativeRuntime createFfiRuntime() => _LiteRtLmFfiRuntime();
 class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
   @override
   EngineHandle createEngine(EngineConfig config) {
+    return _FfiEngineHandle(settings: _createEngineSettings(config));
+  }
+
+  @override
+  CapabilitiesHandle createCapabilities(String modelPath) {
+    _throwIfCapabilitiesUnsupported();
+
+    final modelPathPointer = modelPath.toNativeUtf8();
+    Pointer<Opaque> loadedFile;
+    try {
+      loadedFile = _loadedFileCreate(modelPathPointer);
+    } finally {
+      malloc.free(modelPathPointer);
+    }
+    if (loadedFile == nullptr) {
+      throw LiteRtLmException(
+        'Could not load LiteRT-LM capabilities for model: $modelPath.',
+      );
+    }
+    return _FfiCapabilitiesHandle(pointer: loadedFile);
+  }
+
+  @override
+  bool hasSpeculativeDecodingSupport(CapabilitiesHandle capabilities) {
+    _throwIfCapabilitiesUnsupported();
+
+    final ffiCapabilities = capabilities as _FfiCapabilitiesHandle;
+    return _loadedFileHasSpeculativeDecodingSupport(ffiCapabilities.pointer);
+  }
+
+  @override
+  void deleteCapabilities(CapabilitiesHandle capabilities) {
+    _throwIfCapabilitiesUnsupported();
+
+    final ffiCapabilities = capabilities as _FfiCapabilitiesHandle;
+    _loadedFileDelete(ffiCapabilities.pointer);
+  }
+
+  void _throwIfCapabilitiesUnsupported() {
+    // Windows and Linux native packages do not currently export the
+    // litert_lm_loaded_file_* capabilities symbols used by the FFI bindings.
+    if (Platform.isWindows || Platform.isLinux) {
+      throw UnsupportedError(
+        'Capabilities is not supported by the LiteRT-LM FFI runtime on Windows or Linux.',
+      );
+    }
+  }
+
+  @override
+  Future<BenchmarkInfo> benchmark(
+    EngineConfig config, {
+    required int prefillTokens,
+    required int decodeTokens,
+  }) async {
+    final engine = createEngine(config);
+    var initialized = false;
+    ConversationHandle? conversation;
+    try {
+      final ffiEngine = engine as _FfiEngineHandle;
+      _engineSettingsEnableBenchmark(ffiEngine.settings);
+      _engineSettingsSetNumPrefillTokens(ffiEngine.settings, prefillTokens);
+      _engineSettingsSetNumDecodeTokens(ffiEngine.settings, decodeTokens);
+      await initializeEngine(engine);
+      initialized = true;
+      conversation = await createConversation(
+        engine,
+        const ConversationConfig(),
+      );
+      await sendMessage(
+        conversation,
+        jsonEncode(
+          Message.user('Engine ignore this message in this mode.').toJson(),
+        ),
+      );
+      return getBenchmarkInfo(conversation);
+    } finally {
+      if (conversation != null) {
+        deleteConversation(conversation);
+      }
+      if (initialized) {
+        deleteEngine(engine);
+      }
+    }
+  }
+
+  Pointer<Opaque> _createEngineSettings(EngineConfig config) {
+    if (config.backend case CpuBackend(threadCount: != null)) {
+      throw UnsupportedError(
+        'Backend.cpu.threadCount is not supported by the LiteRT-LM C API.',
+      );
+    }
+
     final modelPath = config.modelPath.toNativeUtf8();
     final backend = config.backend.name.toNativeUtf8();
     final visionBackend = _toOptionalNativeUtf8(config.visionBackend?.name);
@@ -47,6 +143,11 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
       _engineSettingsSetMaxNumTokens(settings, maxNumTokens);
     }
 
+    final maxNumImages = config.maxNumImages;
+    if (maxNumImages != null) {
+      _engineSettingsSetMaxNumImages(settings, maxNumImages);
+    }
+
     final cacheDir = config.cacheDir;
     if (cacheDir != null && cacheDir.isNotEmpty) {
       final cacheDirPointer = cacheDir.toNativeUtf8();
@@ -55,6 +156,24 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
       } finally {
         malloc.free(cacheDirPointer);
       }
+    }
+
+    if (config.backend case NpuBackend(:final nativeLibraryDir?)) {
+      if (nativeLibraryDir.isNotEmpty) {
+        final nativeLibraryDirPointer = nativeLibraryDir.toNativeUtf8();
+        try {
+          _engineSettingsSetLiteRtDispatchLibDir(
+            settings,
+            nativeLibraryDirPointer,
+          );
+        } finally {
+          malloc.free(nativeLibraryDirPointer);
+        }
+      }
+    }
+
+    if (config.enableBenchmark) {
+      _engineSettingsEnableBenchmark(settings);
     }
 
     final loraRank = config.loraRank;
@@ -83,7 +202,7 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
       }
     }
 
-    return _FfiEngineHandle(settings: settings);
+    return settings;
   }
 
   @override
@@ -106,6 +225,12 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
     EngineHandle engine,
     ConversationConfig config,
   ) async {
+    if (config.channels != null) {
+      throw UnsupportedError(
+        'ConversationConfig.channels is not supported by the LiteRT-LM C API.',
+      );
+    }
+
     final ffiEngine = engine as _FfiEngineHandle;
     final conversationConfig = _conversationConfigCreate();
     if (conversationConfig == nullptr) {
@@ -123,7 +248,7 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
         );
       }
 
-      _applySessionConfig(sessionConfig, config);
+      _applySessionConfig(sessionConfig, config.sessionConfig);
 
       _conversationConfigSetSessionConfig(conversationConfig, sessionConfig);
       _applyConversationConfig(conversationConfig, config);
@@ -142,6 +267,31 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
         _sessionConfigDelete(sessionConfig);
       }
       _conversationConfigDelete(conversationConfig);
+    }
+  }
+
+  @override
+  Future<SessionHandle> createSession(
+    EngineHandle engine,
+    SessionConfig config,
+  ) async {
+    final ffiEngine = engine as _FfiEngineHandle;
+    final sessionConfig = _sessionConfigCreate();
+    if (sessionConfig == nullptr) {
+      throw const LiteRtLmException(
+        'Could not create LiteRT-LM session config.',
+      );
+    }
+
+    try {
+      _applySessionConfig(sessionConfig, config);
+      final session = _engineCreateSession(ffiEngine.pointer!, sessionConfig);
+      if (session == nullptr) {
+        throw const LiteRtLmException('Could not create LiteRT-LM session.');
+      }
+      return _FfiSessionHandle(pointer: session);
+    } finally {
+      _sessionConfigDelete(sessionConfig);
     }
   }
 
@@ -262,6 +412,128 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
   }
 
   @override
+  Future<void> runSessionPrefill(
+    SessionHandle session,
+    List<InputData> inputData,
+  ) async {
+    if (inputData.isEmpty) {
+      throw const LiteRtLmException('Session prefill requires input data.');
+    }
+    final ffiSession = session as _FfiSessionHandle;
+    final result = _withInputData(
+      inputData,
+      (inputs, count) => _sessionRunPrefill(ffiSession.pointer, inputs, count),
+    );
+    if (result != 0) {
+      throw LiteRtLmException(
+        'Could not run LiteRT-LM session prefill: $result.',
+      );
+    }
+  }
+
+  @override
+  Future<String> runSessionDecode(SessionHandle session) async {
+    final ffiSession = session as _FfiSessionHandle;
+    final responses = _sessionRunDecode(ffiSession.pointer);
+    if (responses == nullptr) {
+      throw const LiteRtLmException('Could not run LiteRT-LM session decode.');
+    }
+    return _responsesFirstText(responses);
+  }
+
+  @override
+  Future<String> generateSessionContent(
+    SessionHandle session,
+    List<InputData> inputData,
+  ) async {
+    final ffiSession = session as _FfiSessionHandle;
+    final responses = _withInputData(
+      inputData,
+      (inputs, count) =>
+          _sessionGenerateContent(ffiSession.pointer, inputs, count),
+    );
+    if (responses == nullptr) {
+      throw const LiteRtLmException(
+        'Could not generate LiteRT-LM session content.',
+      );
+    }
+    return _responsesFirstText(responses);
+  }
+
+  @override
+  Stream<String> generateSessionContentStream(
+    SessionHandle session,
+    List<InputData> inputData,
+  ) {
+    final ffiSession = session as _FfiSessionHandle;
+    late StreamController<String> controller;
+    _FfiTextStreamCallback? streamCallback;
+
+    controller = StreamController<String>(
+      onListen: () {
+        late final _FfiTextStreamCallback currentStreamCallback;
+        final callback = NativeCallable<_DartStreamCallbackNative>.listener((
+          Pointer<Utf8> chunk,
+          bool isFinal,
+          Pointer<Utf8> errorMessage,
+        ) {
+          _handleTextStreamCallback(
+            currentStreamCallback,
+            chunk,
+            isFinal,
+            errorMessage,
+          );
+        });
+        currentStreamCallback = _FfiTextStreamCallback(
+          controller: controller,
+          session: ffiSession.pointer,
+          callback: callback,
+        );
+        streamCallback = currentStreamCallback;
+
+        final result = _withInputData(
+          inputData,
+          (inputs, count) => _sessionGenerateContentStream(
+            ffiSession.pointer,
+            inputs,
+            count,
+            Native.addressOf<NativeFunction<_StreamCallbackNative>>(
+              _streamCallbackBridge,
+            ),
+            callback.nativeFunction.cast<Opaque>(),
+          ),
+        );
+
+        if (result != 0) {
+          controller.addError(
+            LiteRtLmException(
+              'Could not start LiteRT-LM session content stream: $result.',
+            ),
+          );
+          scheduleMicrotask(() => _disposeFfiTextStream(currentStreamCallback));
+        }
+      },
+      onCancel: () {
+        final callback = streamCallback;
+        if (callback == null || callback.isDone) {
+          return null;
+        }
+        callback.isCanceled = true;
+        _sessionCancelProcess(callback.session);
+        return callback.done.future;
+      },
+    );
+
+    return controller.stream;
+  }
+
+  @override
+  void cancelSession(SessionHandle session) {
+    final ffiSession = session as _FfiSessionHandle;
+    _sessionCancelProcess(ffiSession.pointer);
+  }
+
+  @override
   Future<int> getTokenCount(ConversationHandle conversation) async {
     final ffiConversation = conversation as _FfiConversationHandle;
     final tokenCount = _conversationGetTokenCount(ffiConversation.pointer);
@@ -269,6 +541,54 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
       throw const LiteRtLmException('Could not get LiteRT-LM token count.');
     }
     return tokenCount;
+  }
+
+  @override
+  Future<BenchmarkInfo> getBenchmarkInfo(
+    ConversationHandle conversation,
+  ) async {
+    final ffiConversation = conversation as _FfiConversationHandle;
+    final benchmarkInfo = _conversationGetBenchmarkInfo(
+      ffiConversation.pointer,
+    );
+    if (benchmarkInfo == nullptr) {
+      throw const LiteRtLmException('Could not get LiteRT-LM benchmark info.');
+    }
+    try {
+      final numPrefillTurns = _benchmarkInfoGetNumPrefillTurns(benchmarkInfo);
+      final numDecodeTurns = _benchmarkInfoGetNumDecodeTurns(benchmarkInfo);
+      final lastPrefillTurn = numPrefillTurns - 1;
+      final lastDecodeTurn = numDecodeTurns - 1;
+      return BenchmarkInfo(
+        initTimeInSecond: _benchmarkInfoGetTotalInitTimeInSecond(benchmarkInfo),
+        timeToFirstTokenInSecond: _benchmarkInfoGetTimeToFirstToken(
+          benchmarkInfo,
+        ),
+        lastPrefillTokenCount: numPrefillTurns > 0
+            ? _benchmarkInfoGetPrefillTokenCountAt(
+                benchmarkInfo,
+                lastPrefillTurn,
+              )
+            : 0,
+        lastDecodeTokenCount: numDecodeTurns > 0
+            ? _benchmarkInfoGetDecodeTokenCountAt(benchmarkInfo, lastDecodeTurn)
+            : 0,
+        lastPrefillTokensPerSecond: numPrefillTurns > 0
+            ? _benchmarkInfoGetPrefillTokensPerSecondAt(
+                benchmarkInfo,
+                lastPrefillTurn,
+              )
+            : 0,
+        lastDecodeTokensPerSecond: numDecodeTurns > 0
+            ? _benchmarkInfoGetDecodeTokensPerSecondAt(
+                benchmarkInfo,
+                lastDecodeTurn,
+              )
+            : 0,
+      );
+    } finally {
+      _benchmarkInfoDelete(benchmarkInfo);
+    }
   }
 
   @override
@@ -300,6 +620,12 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
   }
 
   @override
+  void deleteSession(SessionHandle session) {
+    final ffiSession = session as _FfiSessionHandle;
+    _sessionDelete(ffiSession.pointer);
+  }
+
+  @override
   void deleteEngine(EngineHandle engine) {
     final ffiEngine = engine as _FfiEngineHandle;
     _engineDelete(ffiEngine.pointer!);
@@ -324,10 +650,14 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
   }
 
   void _applySessionConfig(
-    Pointer<Opaque> sessionConfig,
-    ConversationConfig config,
+    Pointer<Opaque> nativeSessionConfig,
+    SessionConfig? dartSessionConfig,
   ) {
-    final samplerConfig = config.samplerConfig;
+    if (dartSessionConfig == null) {
+      return;
+    }
+
+    final samplerConfig = dartSessionConfig.samplerConfig;
     if (samplerConfig != null) {
       final samplerParams = calloc<_LiteRtLmSamplerParams>();
       try {
@@ -337,18 +667,80 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
           ..topP = samplerConfig.topP
           ..temperature = samplerConfig.temperature
           ..seed = samplerConfig.seed;
-        _sessionConfigSetSamplerParams(sessionConfig, samplerParams);
+        _sessionConfigSetSamplerParams(nativeSessionConfig, samplerParams);
       } finally {
         calloc.free(samplerParams);
       }
     }
 
-    _setLoraPath(sessionConfig, config.loraPath, _sessionConfigSetLoraPath);
+    final loraConfig = dartSessionConfig.loraConfig;
     _setLoraPath(
-      sessionConfig,
-      config.audioLoraPath,
+      nativeSessionConfig,
+      loraConfig?.loraPath,
+      _sessionConfigSetLoraPath,
+    );
+    _setLoraPath(
+      nativeSessionConfig,
+      loraConfig?.audioLoraPath,
       _sessionConfigSetAudioLoraPath,
     );
+  }
+
+  T _withInputData<T>(
+    List<InputData> inputData,
+    T Function(Pointer<_LiteRtLmInputData> inputs, int count) callback,
+  ) {
+    if (inputData.isEmpty) {
+      return callback(nullptr.cast<_LiteRtLmInputData>(), 0);
+    }
+
+    final inputs = calloc<_LiteRtLmInputData>(inputData.length);
+    final allocations = <Pointer<Uint8>>[];
+    try {
+      for (var index = 0; index < inputData.length; index += 1) {
+        final input = inputData[index];
+        final (type, bytes) = switch (input) {
+          TextInputData(:final text) => (
+            _inputDataTypeText,
+            Uint8List.fromList(utf8.encode(text)),
+          ),
+          ImageInputData(:final bytes) => (_inputDataTypeImage, bytes),
+          AudioInputData(:final bytes) => (_inputDataTypeAudio, bytes),
+        };
+        final allocationSize = bytes.isEmpty ? 1 : bytes.length;
+        final data = calloc<Uint8>(allocationSize);
+        if (bytes.isNotEmpty) {
+          data.asTypedList(allocationSize).setAll(0, bytes);
+        }
+        allocations.add(data);
+        inputs[index]
+          ..type = type
+          ..data = data.cast<Void>()
+          ..size = bytes.length;
+      }
+
+      return callback(inputs, inputData.length);
+    } finally {
+      for (final allocation in allocations) {
+        calloc.free(allocation);
+      }
+      calloc.free(inputs);
+    }
+  }
+
+  String _responsesFirstText(Pointer<Opaque> responses) {
+    try {
+      if (_responsesGetNumCandidates(responses) <= 0) {
+        return '';
+      }
+      final text = _responsesGetResponseTextAt(responses, 0);
+      if (text == nullptr) {
+        return '';
+      }
+      return text.toDartString();
+    } finally {
+      _responsesDelete(responses);
+    }
   }
 
   void _setLoraPath(
@@ -397,7 +789,7 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
   ) {
     final systemMessage = config.systemMessage;
     if (systemMessage != null) {
-      final systemMessageJson = systemMessage.toJsonString();
+      final systemMessageJson = jsonEncode(systemMessage.toJson());
       _withNativeUtf8(systemMessageJson, (pointer) {
         _conversationConfigSetSystemMessage(conversationConfig, pointer);
       });
@@ -449,8 +841,20 @@ class _FfiEngineHandle implements EngineHandle {
   Pointer<Opaque>? pointer;
 }
 
+class _FfiCapabilitiesHandle implements CapabilitiesHandle {
+  const _FfiCapabilitiesHandle({required this.pointer});
+
+  final Pointer<Opaque> pointer;
+}
+
 class _FfiConversationHandle implements ConversationHandle {
   _FfiConversationHandle({required this.pointer});
+
+  final Pointer<Opaque> pointer;
+}
+
+class _FfiSessionHandle implements SessionHandle {
+  _FfiSessionHandle({required this.pointer});
 
   final Pointer<Opaque> pointer;
 }
@@ -464,6 +868,21 @@ class _FfiStreamCallback {
 
   final StreamController<Message> controller;
   final Pointer<Opaque> conversation;
+  final NativeCallable<_DartStreamCallbackNative> callback;
+  final Completer<void> done = Completer<void>();
+  bool isCanceled = false;
+  bool isDone = false;
+}
+
+class _FfiTextStreamCallback {
+  _FfiTextStreamCallback({
+    required this.controller,
+    required this.session,
+    required this.callback,
+  });
+
+  final StreamController<String> controller;
+  final Pointer<Opaque> session;
   final NativeCallable<_DartStreamCallbackNative> callback;
   final Completer<void> done = Completer<void>();
   bool isCanceled = false;
@@ -526,6 +945,64 @@ void _disposeFfiStream(_FfiStreamCallback streamCallback) {
   }
 }
 
+void _handleTextStreamCallback(
+  _FfiTextStreamCallback streamCallback,
+  Pointer<Utf8> chunk,
+  bool isFinal,
+  Pointer<Utf8> errorMessage,
+) {
+  if (streamCallback.isDone) {
+    return;
+  }
+
+  if (errorMessage != nullptr) {
+    try {
+      if (!streamCallback.isCanceled) {
+        streamCallback.controller.addError(
+          LiteRtLmException(errorMessage.toDartString()),
+        );
+      }
+    } finally {
+      _nativeFree(errorMessage.cast<Void>());
+    }
+    scheduleMicrotask(() => _disposeFfiTextStream(streamCallback));
+    return;
+  }
+
+  if (chunk != nullptr && !streamCallback.isCanceled) {
+    try {
+      streamCallback.controller.add(chunk.toDartString());
+    } catch (error, stackTrace) {
+      streamCallback.controller.addError(error, stackTrace);
+    } finally {
+      _nativeFree(chunk.cast<Void>());
+    }
+  }
+
+  if (isFinal) {
+    scheduleMicrotask(() => _disposeFfiTextStream(streamCallback));
+  }
+}
+
+void _disposeFfiTextStream(_FfiTextStreamCallback streamCallback) {
+  if (streamCallback.isDone) {
+    return;
+  }
+
+  streamCallback.isDone = true;
+  if (!streamCallback.isCanceled && !streamCallback.controller.isClosed) {
+    unawaited(streamCallback.controller.close());
+  }
+  streamCallback.callback.close();
+  if (!streamCallback.done.isCompleted) {
+    streamCallback.done.complete();
+  }
+}
+
+const _inputDataTypeText = 0;
+const _inputDataTypeImage = 1;
+const _inputDataTypeAudio = 3;
+
 typedef _EngineSettingsCreateNative =
     Pointer<Opaque> Function(
       Pointer<Utf8>,
@@ -535,12 +1012,18 @@ typedef _EngineSettingsCreateNative =
     );
 typedef _EngineSettingsSetMaxNumTokensNative =
     Void Function(Pointer<Opaque>, Int);
+typedef _EngineSettingsSetMaxNumImagesNative =
+    Void Function(Pointer<Opaque>, Int);
 typedef _EngineSettingsSetCacheDirNative =
+    Void Function(Pointer<Opaque>, Pointer<Utf8>);
+typedef _EngineSettingsSetLiteRtDispatchLibDirNative =
     Void Function(Pointer<Opaque>, Pointer<Utf8>);
 typedef _EngineSettingsSetLoraRankNative = Void Function(Pointer<Opaque>, Int);
 typedef _EngineSettingsSetSupportedLoraRanksNative =
     Int Function(Pointer<Opaque>, Pointer<Int>, Size);
 typedef _EngineCreateNative = Pointer<Opaque> Function(Pointer<Opaque>);
+typedef _EngineCreateSessionNative =
+    Pointer<Opaque> Function(Pointer<Opaque>, Pointer<Opaque>);
 typedef _SessionConfigSetSamplerParamsNative =
     Void Function(Pointer<Opaque>, Pointer<_LiteRtLmSamplerParams>);
 typedef _SessionConfigSetLoraPathNative =
@@ -552,6 +1035,23 @@ typedef _ConversationConfigSetJsonNative =
 typedef _ConversationConfigSetBoolNative = Void Function(Pointer<Opaque>, Bool);
 typedef _ConversationCreateNative =
     Pointer<Opaque> Function(Pointer<Opaque>, Pointer<Opaque>);
+typedef _SessionRunPrefillNative =
+    Int Function(Pointer<Opaque>, Pointer<_LiteRtLmInputData>, Size);
+typedef _SessionResponsesNative = Pointer<Opaque> Function(Pointer<Opaque>);
+typedef _SessionGenerateContentNative =
+    Pointer<Opaque> Function(
+      Pointer<Opaque>,
+      Pointer<_LiteRtLmInputData>,
+      Size,
+    );
+typedef _SessionGenerateContentStreamNative =
+    Int Function(
+      Pointer<Opaque>,
+      Pointer<_LiteRtLmInputData>,
+      Size,
+      Pointer<NativeFunction<_StreamCallbackNative>>,
+      Pointer<Opaque>,
+    );
 typedef _ConversationSendMessageNative =
     Pointer<Opaque> Function(
       Pointer<Opaque>,
@@ -574,6 +1074,20 @@ typedef _ConversationSendMessageStreamNative =
     );
 typedef _ConversationRenderMessageToStringNative =
     Pointer<Utf8> Function(Pointer<Opaque>, Pointer<Utf8>);
+typedef _BenchmarkInfoGetValueNative = Double Function(Pointer<Opaque>);
+typedef _BenchmarkInfoGetCountNative = Int Function(Pointer<Opaque>);
+typedef _BenchmarkInfoGetValueAtNative = Double Function(Pointer<Opaque>, Int);
+typedef _BenchmarkInfoGetCountAtNative = Int Function(Pointer<Opaque>, Int);
+
+final class _LiteRtLmInputData extends Struct {
+  @Int32()
+  external int type;
+
+  external Pointer<Void> data;
+
+  @Size()
+  external int size;
+}
 
 final class _LiteRtLmSamplerParams extends Struct {
   @Int32()
@@ -618,6 +1132,15 @@ external void _engineSettingsSetMaxNumTokens(
   int maxNumTokens,
 );
 
+@Native<_EngineSettingsSetMaxNumImagesNative>(
+  symbol: 'litert_lm_engine_settings_set_max_num_images',
+  assetId: _codeAssetName,
+)
+external void _engineSettingsSetMaxNumImages(
+  Pointer<Opaque> settings,
+  int maxNumImages,
+);
+
 @Native<_EngineSettingsSetCacheDirNative>(
   symbol: 'litert_lm_engine_settings_set_cache_dir',
   assetId: _codeAssetName,
@@ -625,6 +1148,39 @@ external void _engineSettingsSetMaxNumTokens(
 external void _engineSettingsSetCacheDir(
   Pointer<Opaque> settings,
   Pointer<Utf8> cacheDir,
+);
+
+@Native<_EngineSettingsSetLiteRtDispatchLibDirNative>(
+  symbol: 'litert_lm_engine_settings_set_litert_dispatch_lib_dir',
+  assetId: _codeAssetName,
+)
+external void _engineSettingsSetLiteRtDispatchLibDir(
+  Pointer<Opaque> settings,
+  Pointer<Utf8> libDir,
+);
+
+@Native<Void Function(Pointer<Opaque>)>(
+  symbol: 'litert_lm_engine_settings_enable_benchmark',
+  assetId: _codeAssetName,
+)
+external void _engineSettingsEnableBenchmark(Pointer<Opaque> settings);
+
+@Native<_EngineSettingsSetMaxNumTokensNative>(
+  symbol: 'litert_lm_engine_settings_set_num_prefill_tokens',
+  assetId: _codeAssetName,
+)
+external void _engineSettingsSetNumPrefillTokens(
+  Pointer<Opaque> settings,
+  int numPrefillTokens,
+);
+
+@Native<_EngineSettingsSetMaxNumTokensNative>(
+  symbol: 'litert_lm_engine_settings_set_num_decode_tokens',
+  assetId: _codeAssetName,
+)
+external void _engineSettingsSetNumDecodeTokens(
+  Pointer<Opaque> settings,
+  int numDecodeTokens,
 );
 
 @Native<_EngineSettingsSetLoraRankNative>(
@@ -670,6 +1226,15 @@ external int _engineSettingsSetSupportedAudioLoraRanks(
   assetId: _codeAssetName,
 )
 external Pointer<Opaque> _engineCreate(Pointer<Opaque> settings);
+
+@Native<_EngineCreateSessionNative>(
+  symbol: 'litert_lm_engine_create_session',
+  assetId: _codeAssetName,
+)
+external Pointer<Opaque> _engineCreateSession(
+  Pointer<Opaque> engine,
+  Pointer<Opaque> sessionConfig,
+);
 
 @Native<Pointer<Opaque> Function()>(
   symbol: 'litert_lm_session_config_create',
@@ -785,6 +1350,77 @@ external Pointer<Opaque> _conversationCreate(
   Pointer<Opaque> config,
 );
 
+@Native<Void Function(Pointer<Opaque>)>(
+  symbol: 'litert_lm_session_delete',
+  assetId: _codeAssetName,
+)
+external void _sessionDelete(Pointer<Opaque> session);
+
+@Native<Void Function(Pointer<Opaque>)>(
+  symbol: 'litert_lm_session_cancel_process',
+  assetId: _codeAssetName,
+)
+external void _sessionCancelProcess(Pointer<Opaque> session);
+
+@Native<_SessionRunPrefillNative>(
+  symbol: 'litert_lm_session_run_prefill',
+  assetId: _codeAssetName,
+)
+external int _sessionRunPrefill(
+  Pointer<Opaque> session,
+  Pointer<_LiteRtLmInputData> inputs,
+  int numInputs,
+);
+
+@Native<_SessionResponsesNative>(
+  symbol: 'litert_lm_session_run_decode',
+  assetId: _codeAssetName,
+)
+external Pointer<Opaque> _sessionRunDecode(Pointer<Opaque> session);
+
+@Native<_SessionGenerateContentNative>(
+  symbol: 'litert_lm_session_generate_content',
+  assetId: _codeAssetName,
+)
+external Pointer<Opaque> _sessionGenerateContent(
+  Pointer<Opaque> session,
+  Pointer<_LiteRtLmInputData> inputs,
+  int numInputs,
+);
+
+@Native<_SessionGenerateContentStreamNative>(
+  symbol: 'litert_lm_session_generate_content_stream',
+  assetId: _codeAssetName,
+)
+external int _sessionGenerateContentStream(
+  Pointer<Opaque> session,
+  Pointer<_LiteRtLmInputData> inputs,
+  int numInputs,
+  Pointer<NativeFunction<_StreamCallbackNative>> callback,
+  Pointer<Opaque> callbackData,
+);
+
+@Native<Void Function(Pointer<Opaque>)>(
+  symbol: 'litert_lm_responses_delete',
+  assetId: _codeAssetName,
+)
+external void _responsesDelete(Pointer<Opaque> responses);
+
+@Native<Int Function(Pointer<Opaque>)>(
+  symbol: 'litert_lm_responses_get_num_candidates',
+  assetId: _codeAssetName,
+)
+external int _responsesGetNumCandidates(Pointer<Opaque> responses);
+
+@Native<Pointer<Utf8> Function(Pointer<Opaque>, Int)>(
+  symbol: 'litert_lm_responses_get_response_text_at',
+  assetId: _codeAssetName,
+)
+external Pointer<Utf8> _responsesGetResponseTextAt(
+  Pointer<Opaque> responses,
+  int index,
+);
+
 @Native<_ConversationSendMessageNative>(
   symbol: 'litert_lm_conversation_send_message',
   assetId: _codeAssetName,
@@ -847,6 +1483,84 @@ external void _conversationCancelProcess(Pointer<Opaque> conversation);
 )
 external int _conversationGetTokenCount(Pointer<Opaque> conversation);
 
+@Native<Pointer<Opaque> Function(Pointer<Opaque>)>(
+  symbol: 'litert_lm_conversation_get_benchmark_info',
+  assetId: _codeAssetName,
+)
+external Pointer<Opaque> _conversationGetBenchmarkInfo(
+  Pointer<Opaque> conversation,
+);
+
+@Native<Void Function(Pointer<Opaque>)>(
+  symbol: 'litert_lm_benchmark_info_delete',
+  assetId: _codeAssetName,
+)
+external void _benchmarkInfoDelete(Pointer<Opaque> benchmarkInfo);
+
+@Native<_BenchmarkInfoGetValueNative>(
+  symbol: 'litert_lm_benchmark_info_get_time_to_first_token',
+  assetId: _codeAssetName,
+)
+external double _benchmarkInfoGetTimeToFirstToken(
+  Pointer<Opaque> benchmarkInfo,
+);
+
+@Native<_BenchmarkInfoGetValueNative>(
+  symbol: 'litert_lm_benchmark_info_get_total_init_time_in_second',
+  assetId: _codeAssetName,
+)
+external double _benchmarkInfoGetTotalInitTimeInSecond(
+  Pointer<Opaque> benchmarkInfo,
+);
+
+@Native<_BenchmarkInfoGetCountNative>(
+  symbol: 'litert_lm_benchmark_info_get_num_prefill_turns',
+  assetId: _codeAssetName,
+)
+external int _benchmarkInfoGetNumPrefillTurns(Pointer<Opaque> benchmarkInfo);
+
+@Native<_BenchmarkInfoGetCountNative>(
+  symbol: 'litert_lm_benchmark_info_get_num_decode_turns',
+  assetId: _codeAssetName,
+)
+external int _benchmarkInfoGetNumDecodeTurns(Pointer<Opaque> benchmarkInfo);
+
+@Native<_BenchmarkInfoGetCountAtNative>(
+  symbol: 'litert_lm_benchmark_info_get_prefill_token_count_at',
+  assetId: _codeAssetName,
+)
+external int _benchmarkInfoGetPrefillTokenCountAt(
+  Pointer<Opaque> benchmarkInfo,
+  int index,
+);
+
+@Native<_BenchmarkInfoGetCountAtNative>(
+  symbol: 'litert_lm_benchmark_info_get_decode_token_count_at',
+  assetId: _codeAssetName,
+)
+external int _benchmarkInfoGetDecodeTokenCountAt(
+  Pointer<Opaque> benchmarkInfo,
+  int index,
+);
+
+@Native<_BenchmarkInfoGetValueAtNative>(
+  symbol: 'litert_lm_benchmark_info_get_prefill_tokens_per_sec_at',
+  assetId: _codeAssetName,
+)
+external double _benchmarkInfoGetPrefillTokensPerSecondAt(
+  Pointer<Opaque> benchmarkInfo,
+  int index,
+);
+
+@Native<_BenchmarkInfoGetValueAtNative>(
+  symbol: 'litert_lm_benchmark_info_get_decode_tokens_per_sec_at',
+  assetId: _codeAssetName,
+)
+external double _benchmarkInfoGetDecodeTokensPerSecondAt(
+  Pointer<Opaque> benchmarkInfo,
+  int index,
+);
+
 @Native<Void Function(Pointer<Opaque>)>(
   symbol: 'litert_lm_conversation_delete',
   assetId: _codeAssetName,
@@ -876,3 +1590,23 @@ external void _engineDelete(Pointer<Opaque> engine);
   assetId: _codeAssetName,
 )
 external void _setMinimumLogLevel(int level);
+
+@Native<Pointer<Opaque> Function(Pointer<Utf8>)>(
+  symbol: 'litert_lm_loaded_file_create',
+  assetId: _codeAssetName,
+)
+external Pointer<Opaque> _loadedFileCreate(Pointer<Utf8> modelPath);
+
+@Native<Void Function(Pointer<Opaque>)>(
+  symbol: 'litert_lm_loaded_file_delete',
+  assetId: _codeAssetName,
+)
+external void _loadedFileDelete(Pointer<Opaque> loadedFile);
+
+@Native<Bool Function(Pointer<Opaque>)>(
+  symbol: 'litert_lm_loaded_file_has_speculative_decoding_support',
+  assetId: _codeAssetName,
+)
+external bool _loadedFileHasSpeculativeDecodingSupport(
+  Pointer<Opaque> loadedFile,
+);

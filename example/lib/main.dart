@@ -111,7 +111,7 @@ class _MainAppState extends State<MainApp> {
   );
   List<String> _modelAssets = const [];
   String? _modelAsset;
-  Backend _backend = Backend.cpu;
+  Backend _backend = Backend.values.first;
   int _maxNumTokens = 16;
   bool _running = false;
   String _response = '';
