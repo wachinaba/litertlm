@@ -9,13 +9,13 @@
 #endif
 
 typedef void (*LiteRtLmDartStreamCallback)(const char *chunk, bool is_final,
-                                           const char *error_message);
+                                           const char *error_msg);
 
 FFI_PLUGIN_EXPORT void litertlm_free(void *pointer) { free(pointer); }
 
 FFI_PLUGIN_EXPORT void litertlm_stream_callback_bridge(
     void *callback_data, const char *chunk, bool is_final,
-    const char *error_message) {
+  const char *error_msg) {
   LiteRtLmDartStreamCallback dart_callback =
       (LiteRtLmDartStreamCallback)callback_data;
   if (dart_callback == NULL) {
@@ -32,11 +32,11 @@ FFI_PLUGIN_EXPORT void litertlm_stream_callback_bridge(
   }
 
   char *error_copy = NULL;
-  if (error_message != NULL) {
-    size_t error_length = strlen(error_message) + 1;
+  if (error_msg != NULL) {
+    size_t error_length = strlen(error_msg) + 1;
     error_copy = (char *)malloc(error_length);
     if (error_copy != NULL) {
-      memcpy(error_copy, error_message, error_length);
+      memcpy(error_copy, error_msg, error_length);
     }
   }
 

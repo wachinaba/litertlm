@@ -143,6 +143,50 @@ void main() {
     }
   });
 
+  testWidgets('runs inference stream callback', (tester) async {
+    final modelPath = await resolveModelAssetPath(
+      'assets/models/test_lm.litertlm',
+    );
+    final engine = Engine(
+      engineConfig: EngineConfig(
+        modelPath: modelPath,
+        backend: Backend.cpu(),
+        maxNumTokens: 10,
+      ),
+    );
+    Conversation? conversation;
+    try {
+      await engine.initialize();
+      conversation = await engine.createConversation(
+        const ConversationConfig(),
+      );
+      final streamedChunks = <String>[];
+      Object? callbackError;
+      var isDone = false;
+      await conversation.sendMessageWithCallback(
+        Message.user('How are you'),
+        MessageCallback.from(
+          onMessage: (message) {
+            streamedChunks.add(message.text);
+          },
+          onDone: () {
+            isDone = true;
+          },
+          onError: (error, stackTrace) {
+            callbackError = error;
+          },
+        ),
+      );
+      expect(isDone, isTrue);
+      expect(callbackError, isNull);
+      expect(streamedChunks.length, 6);
+      expect(streamedChunks.join(), 'Ꮝgdockdict इक इक इकद्दा');
+    } finally {
+      await conversation?.dispose();
+      await engine.dispose();
+    }
+  });
+
   testWidgets('runs inference image', (tester) async {
     if (kIsWeb) {
       expect(

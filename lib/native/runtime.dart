@@ -52,11 +52,14 @@ abstract interface class LiteRtLmNativeRuntime {
     String? extraContextJson,
   });
 
-  /// Sends a message and streams response chunks.
-  Stream<Message> sendMessageStream(
+  /// Sends a message and streams response chunks to a callback.
+  Future<void> sendMessageWithCallback(
     ConversationHandle conversation,
     String messageJson, {
     String? extraContextJson,
+    required void Function(Message message) onMessage,
+    required void Function() onDone,
+    required void Function(Object error, StackTrace stackTrace) onError,
   });
 
   /// Cancels generation for a native conversation.

@@ -332,77 +332,54 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
   }
 
   @override
-  Stream<Message> sendMessageStream(
+  Future<void> sendMessageWithCallback(
     ConversationHandle conversation,
     String messageJson, {
     String? extraContextJson,
+    required void Function(Message message) onMessage,
+    required void Function() onDone,
+    required void Function(Object error, StackTrace stackTrace) onError,
   }) {
     final ffiConversation = conversation as _FfiConversationHandle;
-    late StreamController<Message> controller;
-    _FfiStreamCallback? streamCallback;
-
-    controller = StreamController<Message>(
-      onListen: () {
-        final messageJsonPointer = messageJson.toNativeUtf8();
-        final extraContextPointer = _toOptionalNativeUtf8(extraContextJson);
-        late final _FfiStreamCallback currentStreamCallback;
-        final callback = NativeCallable<_DartStreamCallbackNative>.listener((
-          Pointer<Utf8> chunk,
-          bool isFinal,
-          Pointer<Utf8> errorMessage,
-        ) {
-          _handleStreamCallback(
-            currentStreamCallback,
-            chunk,
-            isFinal,
-            errorMessage,
-          );
-        });
-        currentStreamCallback = _FfiStreamCallback(
-          controller: controller,
-          conversation: ffiConversation.pointer,
-          callback: callback,
-        );
-        streamCallback = currentStreamCallback;
-
-        int result;
-        try {
-          result = _conversationSendMessageStream(
-            ffiConversation.pointer,
-            messageJsonPointer,
-            extraContextPointer,
-            nullptr,
-            Native.addressOf<NativeFunction<_StreamCallbackNative>>(
-              _streamCallbackBridge,
-            ),
-            callback.nativeFunction.cast<Opaque>(),
-          );
-        } finally {
-          malloc.free(messageJsonPointer);
-          _freeOptionalNativeUtf8(extraContextPointer);
-        }
-
-        if (result != 0) {
-          controller.addError(
-            LiteRtLmException(
-              'Could not start LiteRT-LM message stream: $result.',
-            ),
-          );
-          scheduleMicrotask(() => _disposeFfiStream(currentStreamCallback));
-        }
-      },
-      onCancel: () {
-        final callback = streamCallback;
-        if (callback == null || callback.isDone) {
-          return null;
-        }
-        callback.isCanceled = true;
-        _conversationCancelProcess(callback.conversation);
-        return callback.done.future;
-      },
+    final messageJsonPointer = messageJson.toNativeUtf8();
+    final extraContextPointer = _toOptionalNativeUtf8(extraContextJson);
+    late final _FfiStreamCallback streamCallback;
+    final callback = NativeCallable<_DartStreamCallbackNative>.listener((
+      Pointer<Utf8> chunk,
+      bool isFinal,
+      Pointer<Utf8> errorMessage,
+    ) {
+      _handleStreamCallback(streamCallback, chunk, isFinal, errorMessage);
+    });
+    streamCallback = _FfiStreamCallback(
+      onMessage: onMessage,
+      onDone: onDone,
+      onError: onError,
+      conversation: ffiConversation.pointer,
+      callback: callback,
+      messageJsonPointer: messageJsonPointer,
+      extraContextPointer: extraContextPointer,
     );
 
-    return controller.stream;
+    final result = _conversationSendMessageStream(
+      ffiConversation.pointer,
+      messageJsonPointer,
+      extraContextPointer,
+      nullptr,
+      Native.addressOf<NativeFunction<_StreamCallbackNative>>(
+        _streamCallbackBridge,
+      ),
+      callback.nativeFunction.cast<Opaque>(),
+    );
+
+    if (result != 0) {
+      streamCallback.error = LiteRtLmException(
+        'Could not start LiteRT-LM message stream: $result.',
+      );
+      streamCallback.stackTrace = StackTrace.current;
+      scheduleMicrotask(() => _disposeFfiStream(streamCallback));
+    }
+    return streamCallback.done.future;
   }
 
   @override
@@ -861,15 +838,25 @@ class _FfiSessionHandle implements SessionHandle {
 
 class _FfiStreamCallback {
   _FfiStreamCallback({
-    required this.controller,
+    required this.onMessage,
+    required this.onDone,
+    required this.onError,
     required this.conversation,
     required this.callback,
+    required this.messageJsonPointer,
+    required this.extraContextPointer,
   });
 
-  final StreamController<Message> controller;
+  final void Function(Message message) onMessage;
+  final void Function() onDone;
+  final void Function(Object error, StackTrace stackTrace) onError;
   final Pointer<Opaque> conversation;
   final NativeCallable<_DartStreamCallbackNative> callback;
+  final Pointer<Utf8> messageJsonPointer;
+  final Pointer<Utf8> extraContextPointer;
   final Completer<void> done = Completer<void>();
+  Object? error;
+  StackTrace? stackTrace;
   bool isCanceled = false;
   bool isDone = false;
 }
@@ -902,9 +889,8 @@ void _handleStreamCallback(
   if (errorMessage != nullptr) {
     try {
       if (!streamCallback.isCanceled) {
-        streamCallback.controller.addError(
-          LiteRtLmException(errorMessage.toDartString()),
-        );
+        streamCallback.error = LiteRtLmException(errorMessage.toDartString());
+        streamCallback.stackTrace = StackTrace.current;
       }
     } finally {
       _nativeFree(errorMessage.cast<Void>());
@@ -915,11 +901,12 @@ void _handleStreamCallback(
 
   if (chunk != nullptr && !streamCallback.isCanceled) {
     try {
-      streamCallback.controller.add(
-        Message.fromJsonString(chunk.toDartString()),
-      );
+      streamCallback.onMessage(Message.fromJsonString(chunk.toDartString()));
     } catch (error, stackTrace) {
-      streamCallback.controller.addError(error, stackTrace);
+      streamCallback.error ??= error;
+      streamCallback.stackTrace ??= stackTrace;
+      streamCallback.isCanceled = true;
+      _conversationCancelProcess(streamCallback.conversation);
     } finally {
       _nativeFree(chunk.cast<Void>());
     }
@@ -936,12 +923,25 @@ void _disposeFfiStream(_FfiStreamCallback streamCallback) {
   }
 
   streamCallback.isDone = true;
-  if (!streamCallback.isCanceled && !streamCallback.controller.isClosed) {
-    unawaited(streamCallback.controller.close());
+  malloc.free(streamCallback.messageJsonPointer);
+  if (streamCallback.extraContextPointer != nullptr) {
+    malloc.free(streamCallback.extraContextPointer);
   }
   streamCallback.callback.close();
   if (!streamCallback.done.isCompleted) {
-    streamCallback.done.complete();
+    final error = streamCallback.error;
+    try {
+      if (error == null) {
+        streamCallback.onDone();
+        streamCallback.done.complete();
+      } else {
+        final stackTrace = streamCallback.stackTrace ?? StackTrace.current;
+        streamCallback.onError(error, stackTrace);
+        streamCallback.done.completeError(error, stackTrace);
+      }
+    } catch (callbackError, callbackStackTrace) {
+      streamCallback.done.completeError(callbackError, callbackStackTrace);
+    }
   }
 }
 

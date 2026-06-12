@@ -1,3 +1,7 @@
+## 0.0.5
+
+* Added callback-style conversation streaming.
+
 ## 0.0.4
 
 * Added `maxNumImages` for `EngineConfig`.

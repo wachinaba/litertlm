@@ -161,51 +161,49 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
   }
 
   @override
-  Stream<Message> sendMessageStream(
+  Future<void> sendMessageWithCallback(
     ConversationHandle conversation,
     String messageJson, {
     String? extraContextJson,
-  }) {
-    if (extraContextJson != null) {
-      return Stream.error(
-        UnsupportedError(
+    required void Function(Message message) onMessage,
+    required void Function() onDone,
+    required void Function(Object error, StackTrace stackTrace) onError,
+  }) async {
+    JSObject? streamReader;
+    try {
+      if (extraContextJson != null) {
+        throw UnsupportedError(
           'Per-message extraContext is not supported by the LiteRT-LM JS SDK. '
           'Use ConversationConfig.extraContext on web.',
-        ),
+        );
+      }
+      final jsConversation = conversation as _WebConversationHandle;
+      streamReader = _messageStreamReader(
+        jsConversation.conversation,
+        _parseJson(messageJson),
       );
+      jsConversation.streamReader = streamReader;
+      await _pumpMessageStream(streamReader, onMessage);
+      onDone();
+    } catch (error, stackTrace) {
+      onError(error, stackTrace);
+      rethrow;
+    } finally {
+      if (conversation is _WebConversationHandle &&
+          identical(conversation.streamReader, streamReader)) {
+        conversation.streamReader = null;
+      }
     }
-    final jsConversation = conversation as _WebConversationHandle;
-    late StreamController<Message> controller;
-    JSObject? streamReader;
-    var isCancelled = false;
-
-    controller = StreamController<Message>(
-      onListen: () {
-        streamReader = _messageStreamReader(
-          jsConversation.conversation,
-          _parseJson(messageJson),
-        );
-        unawaited(
-          _pumpMessageStream(streamReader!, controller, () => isCancelled),
-        );
-      },
-      onCancel: () {
-        isCancelled = true;
-        final reader = streamReader;
-        if (reader != null) {
-          _ignoreJsPromise(reader.callMethod<JSPromise<JSAny?>>('cancel'.toJS));
-        }
-        jsConversation.conversation.callMethod<JSAny?>('cancel'.toJS);
-        return null;
-      },
-    );
-
-    return controller.stream;
   }
 
   @override
   void cancelConversation(ConversationHandle conversation) {
     final handle = conversation as _WebConversationHandle;
+    final reader = handle.streamReader;
+    if (reader != null) {
+      _ignoreJsPromise(reader.callMethod<JSPromise<JSAny?>>('cancel'.toJS));
+      handle.streamReader = null;
+    }
     handle.conversation.callMethod<JSAny?>('cancel'.toJS);
   }
 
@@ -489,33 +487,21 @@ return Promise.race([
 
   Future<void> _pumpMessageStream(
     JSObject reader,
-    StreamController<Message> controller,
-    bool Function() isCancelled,
+    void Function(Message message) onMessage,
   ) async {
-    try {
-      while (!isCancelled()) {
-        final result = await _promiseToFuture<JSObject>(
-          reader.callMethod<JSPromise<JSObject>>('read'.toJS),
-        );
-        if (isCancelled()) {
-          return;
-        }
+    while (true) {
+      final result = await _promiseToFuture<JSObject>(
+        reader.callMethod<JSPromise<JSObject>>('read'.toJS),
+      );
 
-        final isDone = result.getProperty<JSBoolean>('done'.toJS).toDart;
-        if (isDone) {
-          await controller.close();
-          return;
-        }
-
-        final chunk = result.getProperty<JSAny?>('value'.toJS);
-        if (chunk != null) {
-          controller.add(Message.fromJsonString(_stringifyJson(chunk)));
-        }
+      final isDone = result.getProperty<JSBoolean>('done'.toJS).toDart;
+      if (isDone) {
+        return;
       }
-    } catch (error) {
-      if (!isCancelled()) {
-        controller.addError(error);
-        await controller.close();
+
+      final chunk = result.getProperty<JSAny?>('value'.toJS);
+      if (chunk != null) {
+        onMessage(Message.fromJsonString(_stringifyJson(chunk)));
       }
     }
   }
@@ -531,6 +517,7 @@ class _WebConversationHandle implements ConversationHandle {
   _WebConversationHandle(this.conversation);
 
   final JSObject conversation;
+  JSObject? streamReader;
 }
 
 class _WebSessionHandle implements SessionHandle {

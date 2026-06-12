@@ -304,69 +304,87 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
   }
 
   @override
-  Stream<Message> sendMessageStream(
+  Future<void> sendMessageWithCallback(
     ConversationHandle conversation,
     String messageJson, {
     String? extraContextJson,
+    required void Function(Message message) onMessage,
+    required void Function() onDone,
+    required void Function(Object error, StackTrace stackTrace) onError,
   }) {
     final jniConversation = conversation as _JniConversationHandle;
+    final done = Completer<void>();
     JObject? streamCallback;
-    late StreamController<Message> controller;
 
-    controller = StreamController<Message>(
-      onListen: () {
-        streamCallback = _MessageCallback.implement(
-          _MessageCallbackImplementation(
-            onMessage: (message) {
-              final messageJson = _messageToJson
-                  .call(_class, JString.type, [message])
-                  .toDartString(releaseOriginal: true);
-              controller.add(Message.fromJsonString(messageJson));
-            },
-            onDone: () {
-              unawaited(controller.close());
-              streamCallback?.release();
-              streamCallback = null;
-            },
-            onError: (throwable) {
-              controller.addError(LiteRtLmException(throwable.toString()));
-              unawaited(controller.close());
-              streamCallback?.release();
-              streamCallback = null;
-            },
-          ),
-        );
-        final message = messageJson.toJString();
-        final extraContext = (extraContextJson ?? '').toJString();
-        try {
-          _sendMessageStream.call(_class, jvoid.type, [
-            jniConversation.conversation,
-            message,
-            extraContext,
-            streamCallback,
-          ]);
-        } catch (error) {
-          streamCallback?.release();
-          streamCallback = null;
-          controller.addError(error);
-          unawaited(controller.close());
-        } finally {
-          message.release();
-          extraContext.release();
-        }
-      },
-      onCancel: () {
-        if (streamCallback != null) {
-          _cancelConversation.call(_class, jvoid.type, [
-            jniConversation.conversation,
-          ]);
-          streamCallback?.release();
-          streamCallback = null;
-        }
-      },
+    void releaseCallback() {
+      streamCallback?.release();
+      streamCallback = null;
+    }
+
+    void completeDone() {
+      releaseCallback();
+      if (done.isCompleted) return;
+      try {
+        onDone();
+        done.complete();
+      } catch (error, stackTrace) {
+        done.completeError(error, stackTrace);
+      }
+    }
+
+    void completeError(Object error, StackTrace stackTrace) {
+      releaseCallback();
+      if (done.isCompleted) return;
+      try {
+        onError(error, stackTrace);
+      } catch (callbackError, callbackStackTrace) {
+        done.completeError(callbackError, callbackStackTrace);
+        return;
+      }
+      done.completeError(error, stackTrace);
+    }
+
+    streamCallback = _MessageCallback.implement(
+      _MessageCallbackImplementation(
+        onMessage: (message) {
+          try {
+            final messageJson = _messageToJson
+                .call(_class, JString.type, [message])
+                .toDartString(releaseOriginal: true);
+            onMessage(Message.fromJsonString(messageJson));
+          } catch (error, stackTrace) {
+            _cancelConversation.call(_class, jvoid.type, [
+              jniConversation.conversation,
+            ]);
+            completeError(error, stackTrace);
+          }
+        },
+        onDone: completeDone,
+        onError: (throwable) {
+          completeError(
+            LiteRtLmException(throwable.toString()),
+            StackTrace.current,
+          );
+        },
+      ),
     );
+    final message = messageJson.toJString();
+    final extraContext = (extraContextJson ?? '').toJString();
+    try {
+      _sendMessageStream.call(_class, jvoid.type, [
+        jniConversation.conversation,
+        message,
+        extraContext,
+        streamCallback,
+      ]);
+    } catch (error, stackTrace) {
+      completeError(error, stackTrace);
+    } finally {
+      message.release();
+      extraContext.release();
+    }
 
-    return controller.stream;
+    return done.future;
   }
 
   @override

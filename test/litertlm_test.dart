@@ -60,6 +60,29 @@ void main() {
     expect(config.enableBenchmark, isFalse);
   });
 
+  test('exports callback streaming API', () {
+    final messages = <Message>[];
+    Object? error;
+    var isDone = false;
+    final callback = MessageCallback.from(
+      onMessage: messages.add,
+      onDone: () {
+        isDone = true;
+      },
+      onError: (callbackError, stackTrace) {
+        error = callbackError;
+      },
+    );
+
+    callback.onMessage(Message.model(contents: Contents.text('hello')));
+    callback.onDone();
+
+    expect(callback, isA<MessageCallback>());
+    expect(messages.single.text, 'hello');
+    expect(isDone, isTrue);
+    expect(error, isNull);
+  });
+
   test('serializes rich messages', () {
     final message = Message.userContents(
       Contents([

@@ -16,7 +16,8 @@ export 'litertlm/config.dart'
         LoraConfig,
         SamplerConfig,
         SessionConfig;
-export 'litertlm/engine.dart' show Conversation, Engine, Session;
+export 'litertlm/engine.dart'
+    show Conversation, Engine, MessageCallback, Session;
 export 'litertlm/exceptions.dart' show LiteRtLmException;
 export 'litertlm/message.dart'
     show

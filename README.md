@@ -1,23 +1,23 @@
 # litertlm
 Native LiteRT-LM bindings for Flutter across mobile, desktop, and web.
 
-Pub: https://pub.dev/packages/litertlm
+Pub Package: https://pub.dev/packages/litertlm
 
-API reference: https://pub.dev/documentation/litertlm/latest/
+API Reference: https://pub.dev/documentation/litertlm/latest/
 
-Matches upstream LiteRT-LM v0.13.1.
+Powered by LiteRT-LM v0.13.1.
 
 ## Overview
-This package is a lightweight bridge to the official LiteRT-LM runtimes. Powered by native LiteRT-LM distributions, it provides the same hardware acceleration and capabilities as each platform's optimized distribution, including the Swift package on iOS and macOS, the Gradle package on Android, and CLI packages on Windows.
+This package is a lightweight bridge to the official LiteRT-LM runtimes. It uses each platform's optimized distribution, providing the same hardware acceleration and capabilities, including the Swift package on iOS and macOS, the Maven artifact on Android, and CLI distribution on Windows.
 
 ## Platform Support
 | Platform | Runtime artifact | Integration |
 | --- | --- | --- |
 | iOS | Official Swift package | FFI |
-| Android | Official Gradle package | JNI |
+| Android | Official Maven artifact | JNI |
 | macOS | Official Swift package | FFI |
-| Windows * | Official CLI package | FFI |
-| Linux | Official CLI package | FFI |
+| Windows* | Official CLI distribution | FFI |
+| Linux | Official CLI distribution | FFI |
 | Web | Official NPM package | JS interop |
 
 **Note:** Windows ARM64 is not currently supported because there is no official upstream package available.
@@ -32,7 +32,7 @@ $ flutter pub add litertlm
 ### Prepare Model
 You can download `.litertlm` models from [LiteRT Community on Hugging Face](https://huggingface.co/litert-community) or other distributors. Models such as Gemma 4 E2B/E4B are great starting points and run on most devices and platforms, including web.
 
-**Note:** LiteRT-LM expects a valid file path or URL. Flutter asset identifiers are not directly supported.
+**Note:** LiteRT-LM expects a valid file path or URL. Flutter asset identifiers are not directly supported. On some platforms, assets are bundled into the app package and may be subject to size limits such as 1 GB. In general, `.litertlm` model files are not a good fit for Flutter assets.
 
 ### Basic Inference
 1. Create and initialize `Engine`.
@@ -75,7 +75,70 @@ await conversation.dispose();
 await engine.dispose();
 ```
 
+### Streaming
+
+There are two ways to get streaming responses.
+
+Use `sendMessageStream` and iterate over `Stream<Message>`.
+
+```dart
+final text = StringBuffer();
+
+await for (final chunk in conversation.sendMessageStream(
+  Message.user('Tell me a long story.'),
+)) {
+  text.write(chunk.text);
+}
+
+print(text);
+```
+
+Use `sendMessageWithCallback` for better control of lifecycle.
+
+```dart
+final callbackText = StringBuffer();
+
+final callback = MessageCallback.from(
+  onMessage: (message) {
+    callbackText.write(message.text);
+  },
+  onDone: () {
+    print(callbackText);
+  },
+  onError: (error, stackTrace) {
+    print(error);
+  },
+);
+
+await conversation.sendMessageWithCallback(
+  Message.user('Tell me a long story.'),
+  callback,
+);
+```
+
+### Message
+
+The examples above use `Message.text`, a convenience getter for common text-only responses. For agent-style workflows, inspect the structured fields on `Message` directly. `contents` preserves multimodal content, and `toolCalls` exposes model-requested tool invocations.
+
+A real-life message might look like this:
+
+```dart
+Message(
+  role: Role.model,
+  contents: Contents([
+    Content.text('Let me check the weather in Seattle.'),
+  ]),
+  toolCalls: [
+    ToolCall(
+      name: 'get_weather',
+      arguments: {'city': 'Seattle'},
+    ),
+  ],
+);
+```
+
 ### Multimodal
+
 Use `Contents` with multiple `Content` values for text, image, and audio inputs. File paths are passed through to the native runtime.
 
 ```dart
@@ -161,5 +224,4 @@ To handle tool calls yourself, disable automatic tool calling and inspect `respo
 LiteRT-LM depends heavily on device hardware, runtime support, and model capabilities. Even when the APIs are used correctly, some actions may fail because of the user's hardware or model selection. Upstream LiteRT-LM may fail silently while logging the underlying issue in native logs. Since those logs are not practical to catch and handle internally, this package throws `LiteRtLmException` when LiteRT-LM clearly refuses to work. Developers can set `LogSeverity` to inspect detailed device logs. It is recommended to catch `LiteRtLmException` around the engine lifecycle and handle it as a recoverable runtime failure.
 
 ### UnsupportedError
-
 LiteRT-LM is under fast development, and not all features are immediately available on every platform. This package throws `UnsupportedError` when the selected platform runtime does not support the requested feature.
