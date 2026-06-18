@@ -82,12 +82,12 @@ void main() {
     Engine? engine;
     Conversation? conversation;
     try {
+      ExperimentalFlags.enableBenchmark = true;
       engine = Engine(
         engineConfig: EngineConfig(
           modelPath: modelPath,
           backend: Backend.cpu(),
           maxNumTokens: 10,
-          enableBenchmark: true,
         ),
       );
       await engine.initialize();
@@ -105,6 +105,7 @@ void main() {
       if (kIsWeb || defaultTargetPlatform == TargetPlatform.android) return;
       rethrow;
     } finally {
+      ExperimentalFlags.enableBenchmark = false;
       await conversation?.dispose();
       await engine?.dispose();
     }
@@ -282,6 +283,35 @@ void main() {
       expect(response.toolCalls, isNotEmpty);
       expect(response.toolCalls.first.name, 'get_weather');
     } finally {
+      await conversation?.dispose();
+      await engine.dispose();
+    }
+  });
+
+  testWidgets('runs inference constrained decoding tool call', (tester) async {
+    final modelPath = await resolveModelAssetPath(
+      'assets/models/gemma-4-E2B-it.litertlm',
+    );
+    final engine = Engine(
+      engineConfig: EngineConfig(modelPath: modelPath, backend: Backend.cpu()),
+    );
+    Conversation? conversation;
+    try {
+      ExperimentalFlags.enableConversationConstrainedDecoding = true;
+      await engine.initialize();
+      conversation = await engine.createConversation(
+        ConversationConfig(
+          automaticToolCalling: false,
+          tools: [_WeatherTool()],
+        ),
+      );
+      final response = await conversation.sendMessage(
+        Message.user('Use get_weather for Mountain View.'),
+      );
+      expect(response.toolCalls, isNotEmpty);
+      expect(response.toolCalls.first.name, 'get_weather');
+    } finally {
+      ExperimentalFlags.enableConversationConstrainedDecoding = false;
       await conversation?.dispose();
       await engine.dispose();
     }

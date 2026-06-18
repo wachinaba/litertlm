@@ -11,6 +11,21 @@ abstract interface class LiteRtLmNativeRuntime {
   /// Runtime implementation for the current platform.
   static final LiteRtLmNativeRuntime instance = platform.createRuntime();
 
+  /// Whether benchmark collection is enabled when creating engines.
+  bool get enableBenchmark;
+
+  set enableBenchmark(bool value);
+
+  /// Whether speculative decoding is explicitly enabled for engine creation.
+  bool? get enableSpeculativeDecoding;
+
+  set enableSpeculativeDecoding(bool? value);
+
+  /// Whether constrained decoding is enabled when creating conversations.
+  bool get enableConversationConstrainedDecoding;
+
+  set enableConversationConstrainedDecoding(bool value);
+
   /// Creates a native engine handle.
   EngineHandle createEngine(EngineConfig config);
 

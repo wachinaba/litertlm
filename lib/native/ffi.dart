@@ -24,6 +24,15 @@ LiteRtLmNativeRuntime createFfiRuntime() => _LiteRtLmFfiRuntime();
 
 class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
   @override
+  bool enableBenchmark = false;
+
+  @override
+  bool? enableSpeculativeDecoding;
+
+  @override
+  bool enableConversationConstrainedDecoding = false;
+
+  @override
   EngineHandle createEngine(EngineConfig config) {
     return _FfiEngineHandle(settings: _createEngineSettings(config));
   }
@@ -172,8 +181,16 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
       }
     }
 
-    if (config.enableBenchmark) {
+    if (enableBenchmark) {
       _engineSettingsEnableBenchmark(settings);
+    }
+
+    final enableSpeculativeDecoding = this.enableSpeculativeDecoding;
+    if (enableSpeculativeDecoding != null) {
+      _engineSettingsSetEnableSpeculativeDecoding(
+        settings,
+        enableSpeculativeDecoding,
+      );
     }
 
     final loraRank = config.loraRank;
@@ -796,7 +813,7 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
       });
     }
 
-    if (config.enableConstrainedDecoding) {
+    if (enableConversationConstrainedDecoding) {
       _conversationConfigSetEnableConstrainedDecoding(conversationConfig, true);
     }
   }
@@ -1019,6 +1036,7 @@ typedef _EngineSettingsSetCacheDirNative =
 typedef _EngineSettingsSetLiteRtDispatchLibDirNative =
     Void Function(Pointer<Opaque>, Pointer<Utf8>);
 typedef _EngineSettingsSetLoraRankNative = Void Function(Pointer<Opaque>, Int);
+typedef _EngineSettingsSetBoolNative = Void Function(Pointer<Opaque>, Bool);
 typedef _EngineSettingsSetSupportedLoraRanksNative =
     Int Function(Pointer<Opaque>, Pointer<Int>, Size);
 typedef _EngineCreateNative = Pointer<Opaque> Function(Pointer<Opaque>);
@@ -1181,6 +1199,15 @@ external void _engineSettingsSetNumPrefillTokens(
 external void _engineSettingsSetNumDecodeTokens(
   Pointer<Opaque> settings,
   int numDecodeTokens,
+);
+
+@Native<_EngineSettingsSetBoolNative>(
+  symbol: 'litert_lm_engine_settings_set_enable_speculative_decoding',
+  assetId: _codeAssetName,
+)
+external void _engineSettingsSetEnableSpeculativeDecoding(
+  Pointer<Opaque> settings,
+  bool enableSpeculativeDecoding,
 );
 
 @Native<_EngineSettingsSetLoraRankNative>(

@@ -131,14 +131,98 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
     'setMinimumLogLevel',
     '(I)V',
   );
+  late final _getEnableBenchmark = _class.staticMethodId(
+    'getEnableBenchmark',
+    '()I',
+  );
+  late final _setEnableBenchmark = _class.staticMethodId(
+    'setEnableBenchmark',
+    '(I)V',
+  );
+  late final _integerClass = JClass.forName('java/lang/Integer');
+  late final _integerValueOf = _integerClass.staticMethodId(
+    'valueOf',
+    '(I)Ljava/lang/Integer;',
+  );
+  late final _integerIntValue = _integerClass.instanceMethodId(
+    'intValue',
+    '()I',
+  );
+  late final _getEnableSpeculativeDecoding = _class.staticMethodId(
+    'getEnableSpeculativeDecoding',
+    '()Ljava/lang/Integer;',
+  );
+  late final _setEnableSpeculativeDecoding = _class.staticMethodId(
+    'setEnableSpeculativeDecoding',
+    '(Ljava/lang/Integer;)V',
+  );
+  late final _getEnableConversationConstrainedDecoding = _class.staticMethodId(
+    'getEnableConversationConstrainedDecoding',
+    '()I',
+  );
+  late final _setEnableConversationConstrainedDecoding = _class.staticMethodId(
+    'setEnableConversationConstrainedDecoding',
+    '(I)V',
+  );
+
+  @override
+  bool get enableBenchmark {
+    return _getEnableBenchmark.call(_class, jint.type, []) != 0;
+  }
+
+  @override
+  set enableBenchmark(bool value) {
+    _setEnableBenchmark.call(_class, jvoid.type, [JValueInt(value ? 1 : 0)]);
+  }
+
+  @override
+  bool? get enableSpeculativeDecoding {
+    final value = _getEnableSpeculativeDecoding.call(_class, JObject.type, []);
+    if (value.reference.pointer == jni_internal.nullptr) {
+      return null;
+    }
+    try {
+      return _integerIntValue.call(value, jint.type, []) != 0;
+    } finally {
+      value.release();
+    }
+  }
+
+  @override
+  set enableSpeculativeDecoding(bool? value) {
+    if (value == null) {
+      _setEnableSpeculativeDecoding.call(_class, jvoid.type, [null]);
+      return;
+    }
+    final integer = _integerValueOf.call(_integerClass, JObject.type, [
+      JValueInt(value ? 1 : 0),
+    ]);
+    try {
+      _setEnableSpeculativeDecoding.call(_class, jvoid.type, [integer]);
+    } finally {
+      integer.release();
+    }
+  }
+
+  @override
+  bool get enableConversationConstrainedDecoding {
+    return _getEnableConversationConstrainedDecoding.call(
+          _class,
+          jint.type,
+          [],
+        ) !=
+        0;
+  }
+
+  @override
+  set enableConversationConstrainedDecoding(bool value) {
+    _setEnableConversationConstrainedDecoding.call(_class, jvoid.type, [
+      JValueInt(value ? 1 : 0),
+    ]);
+  }
 
   @override
   EngineHandle createEngine(EngineConfig config) {
-    if (config.enableBenchmark) {
-      throw UnsupportedError(
-        'EngineConfig.enableBenchmark is not supported on Android.',
-      );
-    }
     final modelPath = config.modelPath.toJString();
     final backend = _encodeBackendJson(config.backend).toJString();
     final visionBackend =
@@ -240,12 +324,6 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
     EngineHandle engine,
     ConversationConfig config,
   ) async {
-    if (config.enableConstrainedDecoding) {
-      throw UnsupportedError(
-        'enableConstrainedDecoding is not supported by the LiteRT-LM Android SDK.',
-      );
-    }
-
     final jniEngine = engine as _JniEngineHandle;
     final configJson = jsonEncode(config.toJson()).toJString();
     try {

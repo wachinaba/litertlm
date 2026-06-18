@@ -5,6 +5,7 @@ import '../native/runtime.dart';
 import 'benchmark.dart';
 import 'config.dart';
 import 'exceptions.dart';
+import 'experimental_flags.dart';
 import 'message.dart';
 import 'session.dart';
 import 'tool.dart';
@@ -243,6 +244,11 @@ class Conversation {
     final handle = _handle;
     if (handle == null) {
       throw const LiteRtLmException('Conversation is already disposed.');
+    }
+    if (!ExperimentalFlags.enableBenchmark) {
+      throw const LiteRtLmException(
+        'Please enable the flag by setting ExperimentalFlags.enableBenchmark to true before initializing the Engine.',
+      );
     }
     return LiteRtLmNativeRuntime.instance.getBenchmarkInfo(handle);
   }

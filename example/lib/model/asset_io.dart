@@ -1,5 +1,7 @@
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show FlutterError;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:path_provider/path_provider.dart';
 
@@ -12,6 +14,10 @@ Future<String> resolveModelAssetPath(String assetPath) async {
     }
 
     await file.parent.create(recursive: true);
+    if (await _mergeAssetParts(assetPath, file)) {
+      return file.path;
+    }
+
     final bytes = await rootBundle.load(assetPath);
     await file.writeAsBytes(
       bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes),
@@ -27,6 +33,34 @@ Future<String> resolveModelAssetPath(String assetPath) async {
   }
 
   return File(assetPath).absolute.path;
+}
+
+Future<bool> _mergeAssetParts(String assetPath, File file) async {
+  final tempFile = File('${file.path}.merge');
+  IOSink? sink;
+  for (var index = 0; ; index += 1) {
+    final bytes = await _loadAssetPart(assetPath, index);
+    if (bytes == null) {
+      if (index == 0) return false;
+      break;
+    }
+
+    sink ??= tempFile.openWrite();
+    sink.add(
+      bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes),
+    );
+  }
+  await sink?.close();
+  await tempFile.rename(file.path);
+  return true;
+}
+
+Future<ByteData?> _loadAssetPart(String assetPath, int index) async {
+  try {
+    return await rootBundle.load('$assetPath.$index.part');
+  } on FlutterError {
+    return null;
+  }
 }
 
 Iterable<File> _nativeAssetFiles(String assetPath) sync* {

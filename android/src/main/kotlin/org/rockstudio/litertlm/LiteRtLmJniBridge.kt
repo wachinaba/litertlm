@@ -12,6 +12,7 @@ import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.ExperimentalApi
+import com.google.ai.edge.litertlm.ExperimentalFlags
 import com.google.ai.edge.litertlm.InputData
 import com.google.ai.edge.litertlm.LogSeverity
 import com.google.ai.edge.litertlm.LoraConfig
@@ -225,6 +226,42 @@ object LiteRtLmJniBridge {
                 else -> LogSeverity.INFINITY
             },
         )
+    }
+
+    @JvmStatic
+    @OptIn(ExperimentalApi::class)
+    fun getEnableBenchmark(): Int {
+        return if (ExperimentalFlags.enableBenchmark) 1 else 0
+    }
+
+    @JvmStatic
+    @OptIn(ExperimentalApi::class)
+    fun setEnableBenchmark(value: Int) {
+        ExperimentalFlags.enableBenchmark = value != 0
+    }
+
+    @JvmStatic
+    @OptIn(ExperimentalApi::class)
+    fun getEnableSpeculativeDecoding(): Int? {
+        return ExperimentalFlags.enableSpeculativeDecoding?.let { if (it) 1 else 0 }
+    }
+
+    @JvmStatic
+    @OptIn(ExperimentalApi::class)
+    fun setEnableSpeculativeDecoding(value: Int?) {
+        ExperimentalFlags.enableSpeculativeDecoding = value?.let { it != 0 }
+    }
+
+    @JvmStatic
+    @OptIn(ExperimentalApi::class)
+    fun getEnableConversationConstrainedDecoding(): Int {
+        return if (ExperimentalFlags.enableConversationConstrainedDecoding) 1 else 0
+    }
+
+    @JvmStatic
+    @OptIn(ExperimentalApi::class)
+    fun setEnableConversationConstrainedDecoding(value: Int) {
+        ExperimentalFlags.enableConversationConstrainedDecoding = value != 0
     }
 
     private fun parseBackend(value: String): Backend {

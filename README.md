@@ -218,6 +218,14 @@ print(response.text);
 
 To handle tool calls yourself, disable automatic tool calling and inspect `response.toolCalls`.
 
+### ExperimentalFlags
+`ExperimentalFlags` provides switches for experimental runtime behavior. The upstream Kotlin SDK exposes `ExperimentalFlags` as global runtime flags. To provide consistent behavior across platforms, `litertlm` follows the same design for `ExperimentalFlags`.
+
+Supported `ExperimentalFlags`:
+* `enableBenchmark`: Enables benchmark collection for engines created after the flag is set.
+* `enableConversationConstrainedDecoding`: Enables constrained decoding for conversations created after the flag is set.
+* `enableSpeculativeDecoding`: Controls speculative decoding for engines created after the flag is set. `null` uses the model default, `true` enables it, and `false` disables it.
+
 ## Troubleshooting
 
 ### LiteRtLmException

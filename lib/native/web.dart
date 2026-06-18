@@ -23,10 +23,26 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
   Future<JSObject>? _sdkModule;
 
   @override
+  bool enableBenchmark = false;
+
+  @override
+  bool? enableSpeculativeDecoding;
+
+  @override
+  bool enableConversationConstrainedDecoding = false;
+
+  @override
   EngineHandle createEngine(EngineConfig config) {
     if (config.maxNumImages != null) {
       throw UnsupportedError(
         'maxNumImages is not supported by the LiteRT-LM JS SDK.',
+      );
+    }
+    final benchmarkEnabled = enableBenchmark;
+    final speculativeDecodingEnabled = enableSpeculativeDecoding;
+    if (speculativeDecodingEnabled != null) {
+      throw UnsupportedError(
+        'ExperimentalFlags.enableSpeculativeDecoding is not supported by the LiteRT-LM JS SDK.',
       );
     }
 
@@ -58,6 +74,9 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
               'prefill_chunk_size': -1,
               'number_of_threads': threadCount,
             };
+          }
+          if (benchmarkEnabled) {
+            mainExecutorSettings['advancedSettings'] = {'is_benchmark': true};
           }
           if (mainExecutorSettings.isNotEmpty) {
             settings['mainExecutorSettings'] = mainExecutorSettings;
@@ -112,8 +131,14 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
     EngineHandle engine,
     ConversationConfig config,
   ) async {
+    final conversationConstrainedDecodingEnabled =
+        enableConversationConstrainedDecoding;
     final jsEngine = await (engine as _WebEngineHandle).engine;
-    final jsConfig = _conversationConfigToJs(config);
+    final jsConfig = _conversationConfigToJs(
+      config,
+      enableConversationConstrainedDecoding:
+          conversationConstrainedDecodingEnabled,
+    );
     final conversation = await _promiseToFuture<JSObject>(
       jsEngine.callMethod<JSPromise<JSObject>>(
         'createConversation'.toJS,
@@ -365,7 +390,10 @@ return Promise.race([
     return json.callMethod<JSObject>('parse'.toJS, value.toJS);
   }
 
-  JSObject _conversationConfigToJs(ConversationConfig config) {
+  JSObject _conversationConfigToJs(
+    ConversationConfig config, {
+    required bool enableConversationConstrainedDecoding,
+  }) {
     final dartSessionConfig = config.sessionConfig;
     final loraConfig = dartSessionConfig?.loraConfig;
     if (loraConfig?.loraPath != null || loraConfig?.audioLoraPath != null) {
@@ -402,7 +430,7 @@ return Promise.race([
     if (preface.isNotEmpty) {
       jsConfig['preface'] = preface;
     }
-    if (config.enableConstrainedDecoding) {
+    if (enableConversationConstrainedDecoding) {
       jsConfig['enableConstrainedDecoding'] = true;
     }
     return _parseJson(jsonEncode(jsConfig));

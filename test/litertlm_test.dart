@@ -57,7 +57,25 @@ void main() {
 
     expect(config.backend, const Backend.cpu());
     expect(config.modelPath, 'model.litertlm');
-    expect(config.enableBenchmark, isFalse);
+  });
+
+  test('exports experimental flags API', () {
+    try {
+      ExperimentalFlags.enableBenchmark = true;
+      ExperimentalFlags.enableSpeculativeDecoding = false;
+      ExperimentalFlags.enableConversationConstrainedDecoding = true;
+
+      expect(ExperimentalFlags.enableBenchmark, isTrue);
+      expect(ExperimentalFlags.enableSpeculativeDecoding, isFalse);
+      expect(ExperimentalFlags.enableConversationConstrainedDecoding, isTrue);
+
+      ExperimentalFlags.enableSpeculativeDecoding = null;
+      expect(ExperimentalFlags.enableSpeculativeDecoding, isNull);
+    } finally {
+      ExperimentalFlags.enableBenchmark = false;
+      ExperimentalFlags.enableSpeculativeDecoding = null;
+      ExperimentalFlags.enableConversationConstrainedDecoding = false;
+    }
   });
 
   test('exports callback streaming API', () {
@@ -114,7 +132,6 @@ void main() {
         loraConfig: LoraConfig(loraPath: 'adapter.bin'),
       ),
       automaticToolCalling: false,
-      enableConstrainedDecoding: true,
     );
 
     final json =
@@ -136,7 +153,6 @@ void main() {
     });
     expect(sessionConfig['loraConfig'], {'loraPath': 'adapter.bin'});
     expect(json['automaticToolCalling'], false);
-    expect(json['enableConstrainedDecoding'], true);
   });
 
   test('serializes session input data', () {

@@ -19,6 +19,7 @@ export 'litertlm/config.dart'
 export 'litertlm/engine.dart'
     show Conversation, Engine, MessageCallback, Session;
 export 'litertlm/exceptions.dart' show LiteRtLmException;
+export 'litertlm/experimental_flags.dart' show ExperimentalFlags;
 export 'litertlm/message.dart'
     show
         AudioBytesContent,

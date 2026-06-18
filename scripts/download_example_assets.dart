@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:isolate';
 
+const _partSizeBytes = 512 * 1024 * 1024;
 const _liteRtLmVersion = 'v0.13.1';
 const _baseUrl =
     'https://raw.githubusercontent.com/google-ai-edge/LiteRT-LM/$_liteRtLmVersion';
@@ -39,14 +40,35 @@ Future<void> main() async {
       final file = File.fromUri(scriptUri.resolve('../${asset.path}'));
       await file.parent.create(recursive: true);
 
-      final request = await client.getUrl(url);
-      final response = await request.close();
-      if (response.statusCode != HttpStatus.ok) {
-        throw HttpException('Failed to download ${asset.url}', uri: url);
+      if (!file.existsSync() || file.lengthSync() == 0) {
+        final request = await client.getUrl(url);
+        final response = await request.close();
+        if (response.statusCode != HttpStatus.ok) {
+          throw HttpException('Failed to download ${asset.url}', uri: url);
+        }
+        await response.pipe(file.openWrite());
       }
-      await response.pipe(file.openWrite());
+      await _cutIntoPartsIfNeeded(file);
     }
   } finally {
     client.close();
+  }
+}
+
+Future<void> _cutIntoPartsIfNeeded(File file) async {
+  final length = await file.length();
+  if (length <= _partSizeBytes) return;
+
+  var start = 0;
+  var index = 0;
+  while (start < length) {
+    final end = start + _partSizeBytes > length
+        ? length
+        : start + _partSizeBytes;
+    await file
+        .openRead(start, end)
+        .pipe(File('${file.path}.$index.part').openWrite());
+    start = end;
+    index += 1;
   }
 }

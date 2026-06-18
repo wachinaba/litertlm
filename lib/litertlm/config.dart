@@ -58,7 +58,6 @@ class EngineConfig {
     this.cacheDir,
     this.loraRank,
     this.audioLoraRank,
-    this.enableBenchmark = false,
   });
 
   /// The file path to the LiteRT-LM model.
@@ -87,9 +86,6 @@ class EngineConfig {
 
   /// The supported rank for Audio LoRA weights.
   final int? audioLoraRank;
-
-  /// Whether benchmark collection is enabled for conversations from this engine.
-  final bool enableBenchmark;
 }
 
 /// Definition of a channel for model responses.
@@ -127,7 +123,6 @@ class ConversationConfig {
     this.sessionConfig,
     this.automaticToolCalling = true,
     this.channels,
-    this.enableConstrainedDecoding = false,
   });
 
   /// The system message for the conversation.
@@ -151,9 +146,6 @@ class ConversationConfig {
   /// Channel definitions for model output, or `null` to use model defaults.
   final List<Channel>? channels;
 
-  /// Whether constrained decoding is enabled.
-  final bool enableConstrainedDecoding;
-
   /// Converts this configuration to JSON-compatible values.
   Map<String, Object?> toJson() {
     return {
@@ -171,7 +163,6 @@ class ConversationConfig {
       'automaticToolCalling': automaticToolCalling,
       if (channels case final channels?)
         'channels': channels.map((channel) => channel.toJson()).toList(),
-      'enableConstrainedDecoding': enableConstrainedDecoding,
     };
   }
 }

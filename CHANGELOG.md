@@ -1,3 +1,7 @@
+## 0.0.6
+
+* Added `ExperimentalFlags` with `enableBenchmark`, `enableSpeculativeDecoding`, `enableConversationConstrainedDecoding`.
+
 ## 0.0.5
 
 * Added callback-style conversation streaming.
