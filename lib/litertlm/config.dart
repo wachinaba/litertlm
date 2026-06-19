@@ -170,7 +170,12 @@ class ConversationConfig {
 /// Configuration for a LiteRT-LM session.
 class SessionConfig {
   /// Creates a session configuration.
-  const SessionConfig({this.samplerConfig, this.loraConfig});
+  const SessionConfig({
+    this.samplerConfig,
+    this.loraConfig,
+    this.maxOutputTokens,
+    this.applyPromptTemplateInSession,
+  });
 
   /// Configuration for the sampling process.
   final SamplerConfig? samplerConfig;
@@ -178,12 +183,20 @@ class SessionConfig {
   /// Configuration for LoRA weights.
   final LoraConfig? loraConfig;
 
+  /// The maximum number of output tokens.
+  final int? maxOutputTokens;
+
+  /// Whether to apply prompt template for this session.
+  final bool? applyPromptTemplateInSession;
+
   /// Converts this configuration to JSON-compatible values.
   Map<String, Object?> toJson() {
     return {
       if (samplerConfig case final samplerConfig?)
         'samplerConfig': samplerConfig.toJson(),
       if (loraConfig case final loraConfig?) 'loraConfig': loraConfig.toJson(),
+      'maxOutputTokens': ?maxOutputTokens,
+      'applyPromptTemplateInSession': ?applyPromptTemplateInSession,
     };
   }
 }

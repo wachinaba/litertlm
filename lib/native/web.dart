@@ -32,6 +32,12 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
   bool enableConversationConstrainedDecoding = false;
 
   @override
+  bool filterChannelContentFromKvCache = false;
+
+  @override
+  int? visualTokenBudget;
+
+  @override
   EngineHandle createEngine(EngineConfig config) {
     if (config.maxNumImages != null) {
       throw UnsupportedError(
@@ -133,11 +139,14 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
   ) async {
     final conversationConstrainedDecodingEnabled =
         enableConversationConstrainedDecoding;
+    final filterChannelContentFromKvCache =
+        this.filterChannelContentFromKvCache;
     final jsEngine = await (engine as _WebEngineHandle).engine;
     final jsConfig = _conversationConfigToJs(
       config,
       enableConversationConstrainedDecoding:
           conversationConstrainedDecodingEnabled,
+      filterChannelContentFromKvCache: filterChannelContentFromKvCache,
     );
     final conversation = await _promiseToFuture<JSObject>(
       jsEngine.callMethod<JSPromise<JSObject>>(
@@ -169,6 +178,11 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
     String messageJson, {
     String? extraContextJson,
   }) async {
+    if (visualTokenBudget != null) {
+      throw UnsupportedError(
+        'ExperimentalFlags.visualTokenBudget is not supported by the LiteRT-LM JS SDK.',
+      );
+    }
     if (extraContextJson != null) {
       throw UnsupportedError(
         'Per-message extraContext is not supported by the LiteRT-LM JS SDK. '
@@ -196,6 +210,11 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
   }) async {
     JSObject? streamReader;
     try {
+      if (visualTokenBudget != null) {
+        throw UnsupportedError(
+          'ExperimentalFlags.visualTokenBudget is not supported by the LiteRT-LM JS SDK.',
+        );
+      }
       if (extraContextJson != null) {
         throw UnsupportedError(
           'Per-message extraContext is not supported by the LiteRT-LM JS SDK. '
@@ -393,6 +412,7 @@ return Promise.race([
   JSObject _conversationConfigToJs(
     ConversationConfig config, {
     required bool enableConversationConstrainedDecoding,
+    required bool filterChannelContentFromKvCache,
   }) {
     final dartSessionConfig = config.sessionConfig;
     final loraConfig = dartSessionConfig?.loraConfig;
@@ -433,6 +453,9 @@ return Promise.race([
     if (enableConversationConstrainedDecoding) {
       jsConfig['enableConstrainedDecoding'] = true;
     }
+    if (filterChannelContentFromKvCache) {
+      jsConfig['filterChannelContentFromKvCache'] = true;
+    }
     return _parseJson(jsonEncode(jsConfig));
   }
 
@@ -458,6 +481,8 @@ return Promise.race([
           'temperature': samplerConfig.temperature,
           'seed': samplerConfig.seed,
         },
+      'maxOutputTokens': ?config?.maxOutputTokens,
+      'applyPromptTemplateInSession': ?config?.applyPromptTemplateInSession,
     };
   }
 

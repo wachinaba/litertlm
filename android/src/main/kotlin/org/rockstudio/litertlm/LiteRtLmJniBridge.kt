@@ -264,6 +264,30 @@ object LiteRtLmJniBridge {
         ExperimentalFlags.enableConversationConstrainedDecoding = value != 0
     }
 
+    @JvmStatic
+    @OptIn(ExperimentalApi::class)
+    fun getFilterChannelContentFromKvCache(): Int {
+        return if (ExperimentalFlags.filterChannelContentFromKvCache) 1 else 0
+    }
+
+    @JvmStatic
+    @OptIn(ExperimentalApi::class)
+    fun setFilterChannelContentFromKvCache(value: Int) {
+        ExperimentalFlags.filterChannelContentFromKvCache = value != 0
+    }
+
+    @JvmStatic
+    @OptIn(ExperimentalApi::class)
+    fun getVisualTokenBudget(): Int? {
+        return ExperimentalFlags.visualTokenBudget
+    }
+
+    @JvmStatic
+    @OptIn(ExperimentalApi::class)
+    fun setVisualTokenBudget(value: Int?) {
+        ExperimentalFlags.visualTokenBudget = value
+    }
+
     private fun parseBackend(value: String): Backend {
         val json = JSONObject(value)
         return parseBackend(

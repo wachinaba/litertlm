@@ -5,7 +5,7 @@ import 'dart:typed_data';
 class Message {
   /// Creates a message.
   const Message({
-    required this.role,
+    this.role,
     this.contents = Contents.empty,
     this.toolCalls = const [],
     this.channels = const {},
@@ -87,7 +87,7 @@ class Message {
   }
 
   /// The role of the message.
-  final Role role;
+  final Role? role;
 
   /// The contents of the message.
   final Contents contents;
@@ -98,13 +98,17 @@ class Message {
   /// The channels of the message.
   final Map<String, String> channels;
 
+  /// Whether this message is the empty stream-completion sentinel.
+  bool get isEmpty =>
+      role == null && contents.isEmpty && toolCalls.isEmpty && channels.isEmpty;
+
   /// The text content of the message.
   String get text => contents.text;
 
   /// Converts this message to JSON-compatible values.
   Map<String, Object?> toJson() {
     return {
-      'role': role.jsonName,
+      if (role case final role?) 'role': role.jsonName,
       if (!contents.isEmpty) 'content': contents.toJson(),
       if (toolCalls.isNotEmpty)
         'tool_calls': toolCalls.map((toolCall) => toolCall.toJson()).toList(),

@@ -164,6 +164,22 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
     'setEnableConversationConstrainedDecoding',
     '(I)V',
   );
+  late final _getFilterChannelContentFromKvCache = _class.staticMethodId(
+    'getFilterChannelContentFromKvCache',
+    '()I',
+  );
+  late final _setFilterChannelContentFromKvCache = _class.staticMethodId(
+    'setFilterChannelContentFromKvCache',
+    '(I)V',
+  );
+  late final _getVisualTokenBudget = _class.staticMethodId(
+    'getVisualTokenBudget',
+    '()Ljava/lang/Integer;',
+  );
+  late final _setVisualTokenBudget = _class.staticMethodId(
+    'setVisualTokenBudget',
+    '(Ljava/lang/Integer;)V',
+  );
 
   @override
   bool get enableBenchmark {
@@ -219,6 +235,47 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
     _setEnableConversationConstrainedDecoding.call(_class, jvoid.type, [
       JValueInt(value ? 1 : 0),
     ]);
+  }
+
+  @override
+  bool get filterChannelContentFromKvCache {
+    return _getFilterChannelContentFromKvCache.call(_class, jint.type, []) != 0;
+  }
+
+  @override
+  set filterChannelContentFromKvCache(bool value) {
+    _setFilterChannelContentFromKvCache.call(_class, jvoid.type, [
+      JValueInt(value ? 1 : 0),
+    ]);
+  }
+
+  @override
+  int? get visualTokenBudget {
+    final value = _getVisualTokenBudget.call(_class, JObject.type, []);
+    if (value.reference.pointer == jni_internal.nullptr) {
+      return null;
+    }
+    try {
+      return _integerIntValue.call(value, jint.type, []);
+    } finally {
+      value.release();
+    }
+  }
+
+  @override
+  set visualTokenBudget(int? value) {
+    if (value == null) {
+      _setVisualTokenBudget.call(_class, jvoid.type, [null]);
+      return;
+    }
+    final integer = _integerValueOf.call(_integerClass, JObject.type, [
+      JValueInt(value),
+    ]);
+    try {
+      _setVisualTokenBudget.call(_class, jvoid.type, [integer]);
+    } finally {
+      integer.release();
+    }
   }
 
   @override
@@ -324,6 +381,17 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
     EngineHandle engine,
     ConversationConfig config,
   ) async {
+    final sessionConfig = config.sessionConfig;
+    if (sessionConfig?.maxOutputTokens != null) {
+      throw UnsupportedError(
+        'SessionConfig.maxOutputTokens is not supported by the LiteRT-LM Android SDK.',
+      );
+    }
+    if (sessionConfig?.applyPromptTemplateInSession != null) {
+      throw UnsupportedError(
+        'SessionConfig.applyPromptTemplateInSession is not supported by the LiteRT-LM Android SDK.',
+      );
+    }
     final jniEngine = engine as _JniEngineHandle;
     final configJson = jsonEncode(config.toJson()).toJString();
     try {
@@ -343,6 +411,16 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
     EngineHandle engine,
     SessionConfig config,
   ) async {
+    if (config.maxOutputTokens != null) {
+      throw UnsupportedError(
+        'SessionConfig.maxOutputTokens is not supported by the LiteRT-LM Android SDK.',
+      );
+    }
+    if (config.applyPromptTemplateInSession != null) {
+      throw UnsupportedError(
+        'SessionConfig.applyPromptTemplateInSession is not supported by the LiteRT-LM Android SDK.',
+      );
+    }
     final jniEngine = engine as _JniEngineHandle;
     final configJson = jsonEncode(config.toJson()).toJString();
     try {

@@ -1,3 +1,10 @@
+## 0.0.7
+
+* Added `MessageCallback.onMessageDone` for message boundaries.
+* Updated `Conversation.sendMessageStream` to emit an empty message at native message-generation boundaries.
+* Added `SessionConfig.maxOutputTokens` and `SessionConfig.applyPromptTemplateInSession` for supported platforms.
+* Added `ExperimentalFlags.filterChannelContentFromKvCache` and `ExperimentalFlags.visualTokenBudget`.
+
 ## 0.0.6
 
 * Added `ExperimentalFlags` with `enableBenchmark`, `enableSpeculativeDecoding`, `enableConversationConstrainedDecoding`.

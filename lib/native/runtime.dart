@@ -26,6 +26,16 @@ abstract interface class LiteRtLmNativeRuntime {
 
   set enableConversationConstrainedDecoding(bool value);
 
+  /// Whether channel content is filtered from the KV cache.
+  bool get filterChannelContentFromKvCache;
+
+  set filterChannelContentFromKvCache(bool value);
+
+  /// The visual token budget.
+  int? get visualTokenBudget;
+
+  set visualTokenBudget(int? value);
+
   /// Creates a native engine handle.
   EngineHandle createEngine(EngineConfig config);
 

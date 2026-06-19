@@ -17,18 +17,23 @@ abstract interface class MessageCallback {
   /// Creates a callback from individual lifecycle handlers.
   factory MessageCallback.from({
     required void Function(Message message) onMessage,
-    required void Function() onDone,
-    required void Function(Object error, StackTrace stackTrace) onError,
+    void Function()? onMessageDone,
+    void Function()? onDone,
+    void Function(Object error, StackTrace stackTrace)? onError,
   }) {
     return _ForwardingMessageCallback(
       onMessage: onMessage,
-      onDone: onDone,
-      onError: onError,
+      onMessageDone: onMessageDone ?? () {},
+      onDone: onDone ?? () {},
+      onError: onError ?? (_, _) {},
     );
   }
 
   /// Called for each streamed message chunk.
   void onMessage(Message message);
+
+  /// Called when the current streamed message is complete.
+  void onMessageDone();
 
   /// Called when the stream finishes successfully.
   void onDone();
@@ -163,6 +168,11 @@ class Conversation {
                 controller.add(chunk);
               }
             },
+            onMessageDone: () {
+              if (!isCanceled) {
+                controller.add(const Message());
+              }
+            },
             onDone: () {
               if (!isCanceled) {
                 unawaited(controller.close());
@@ -286,17 +296,24 @@ class Conversation {
 class _ForwardingMessageCallback implements MessageCallback {
   const _ForwardingMessageCallback({
     required this._onMessage,
+    required this._onMessageDone,
     required this._onDone,
     required this._onError,
   });
 
   final void Function(Message message) _onMessage;
+  final void Function() _onMessageDone;
   final void Function() _onDone;
   final void Function(Object error, StackTrace stackTrace) _onError;
 
   @override
   void onMessage(Message message) {
     _onMessage(message);
+  }
+
+  @override
+  void onMessageDone() {
+    _onMessageDone();
   }
 
   @override
@@ -379,6 +396,13 @@ class _ToolCallingMessageCallback {
 
   void _onDone() {
     if (_done.isCompleted) return;
+    try {
+      userCallback.onMessageDone();
+    } catch (error, stackTrace) {
+      _done.completeError(error, stackTrace);
+      return;
+    }
+
     final pendingToolCalls = _pendingToolCalls;
     if (pendingToolCalls != null) {
       _pendingToolCalls = null;

@@ -64,26 +64,38 @@ void main() {
       ExperimentalFlags.enableBenchmark = true;
       ExperimentalFlags.enableSpeculativeDecoding = false;
       ExperimentalFlags.enableConversationConstrainedDecoding = true;
+      ExperimentalFlags.filterChannelContentFromKvCache = true;
+      ExperimentalFlags.visualTokenBudget = 280;
 
       expect(ExperimentalFlags.enableBenchmark, isTrue);
       expect(ExperimentalFlags.enableSpeculativeDecoding, isFalse);
       expect(ExperimentalFlags.enableConversationConstrainedDecoding, isTrue);
+      expect(ExperimentalFlags.filterChannelContentFromKvCache, isTrue);
+      expect(ExperimentalFlags.visualTokenBudget, 280);
 
       ExperimentalFlags.enableSpeculativeDecoding = null;
       expect(ExperimentalFlags.enableSpeculativeDecoding, isNull);
+      ExperimentalFlags.visualTokenBudget = null;
+      expect(ExperimentalFlags.visualTokenBudget, isNull);
     } finally {
       ExperimentalFlags.enableBenchmark = false;
       ExperimentalFlags.enableSpeculativeDecoding = null;
       ExperimentalFlags.enableConversationConstrainedDecoding = false;
+      ExperimentalFlags.filterChannelContentFromKvCache = false;
+      ExperimentalFlags.visualTokenBudget = null;
     }
   });
 
   test('exports callback streaming API', () {
     final messages = <Message>[];
     Object? error;
+    var isMessageDone = false;
     var isDone = false;
     final callback = MessageCallback.from(
       onMessage: messages.add,
+      onMessageDone: () {
+        isMessageDone = true;
+      },
       onDone: () {
         isDone = true;
       },
@@ -93,10 +105,11 @@ void main() {
     );
 
     callback.onMessage(Message.model(contents: Contents.text('hello')));
+    callback.onMessageDone();
     callback.onDone();
-
     expect(callback, isA<MessageCallback>());
     expect(messages.single.text, 'hello');
+    expect(isMessageDone, isTrue);
     expect(isDone, isTrue);
     expect(error, isNull);
   });
@@ -122,6 +135,16 @@ void main() {
     expect(parsed.contents.values, hasLength(2));
   });
 
+  test('serializes empty stream sentinel message', () {
+    const message = Message();
+
+    expect(message.role, isNull);
+    expect(message.isEmpty, isTrue);
+    expect(message.toJson(), isEmpty);
+    expect(Message.model().isEmpty, isFalse);
+    expect(Message.model().toJson(), {'role': 'model'});
+  });
+
   test('serializes conversation preface config', () {
     final config = ConversationConfig(
       systemMessage: Message.system('be concise'),
@@ -130,6 +153,8 @@ void main() {
       sessionConfig: SessionConfig(
         samplerConfig: SamplerConfig(topK: 8, topP: 0.9, temperature: 0.7),
         loraConfig: LoraConfig(loraPath: 'adapter.bin'),
+        maxOutputTokens: 128,
+        applyPromptTemplateInSession: false,
       ),
       automaticToolCalling: false,
     );
@@ -152,6 +177,8 @@ void main() {
       'seed': 0,
     });
     expect(sessionConfig['loraConfig'], {'loraPath': 'adapter.bin'});
+    expect(sessionConfig['maxOutputTokens'], 128);
+    expect(sessionConfig['applyPromptTemplateInSession'], false);
     expect(json['automaticToolCalling'], false);
   });
 

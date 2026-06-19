@@ -1,6 +1,6 @@
 name: litertlm
 description: Native LiteRT-LM bindings for Flutter across mobile, desktop, and web.
-version: 0.0.6
+version: 0.0.7
 homepage: https://github.com/yangyuan/litertlm
 
 environment:

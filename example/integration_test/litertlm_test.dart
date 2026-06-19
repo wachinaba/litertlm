@@ -136,7 +136,7 @@ void main() {
             return message.text;
           })
           .join();
-      expect(streamedChunkCount, 6);
+      expect(streamedChunkCount, 7);
       expect(streamedResponse, 'Ꮝgdockdict इक इक इकद्दा');
     } finally {
       await conversation?.dispose();
@@ -163,12 +163,16 @@ void main() {
       );
       final streamedChunks = <String>[];
       Object? callbackError;
+      var isMessageDone = false;
       var isDone = false;
       await conversation.sendMessageWithCallback(
         Message.user('How are you'),
         MessageCallback.from(
           onMessage: (message) {
             streamedChunks.add(message.text);
+          },
+          onMessageDone: () {
+            isMessageDone = true;
           },
           onDone: () {
             isDone = true;
@@ -178,6 +182,7 @@ void main() {
           },
         ),
       );
+      expect(isMessageDone, isTrue);
       expect(isDone, isTrue);
       expect(callbackError, isNull);
       expect(streamedChunks.length, 6);

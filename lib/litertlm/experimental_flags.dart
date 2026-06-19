@@ -46,4 +46,33 @@ final class ExperimentalFlags {
     LiteRtLmNativeRuntime.instance.enableConversationConstrainedDecoding =
         value;
   }
+
+  /// Whether channel content is filtered from the KV cache.
+  ///
+  /// If true, channel content (e.g. reasoning) will be filtered from the KV
+  /// cache.
+  ///
+  /// Note: This flag is read only when a new [Conversation] is created.
+  /// Changing this value will not affect any existing [Conversation]
+  /// instances.
+  static bool get filterChannelContentFromKvCache =>
+      LiteRtLmNativeRuntime.instance.filterChannelContentFromKvCache;
+
+  static set filterChannelContentFromKvCache(bool value) {
+    LiteRtLmNativeRuntime.instance.filterChannelContentFromKvCache = value;
+  }
+
+  /// The visual token budget.
+  ///
+  /// The number of visual tokens that the model can generate for a single
+  /// image. If null, there is no budget limit and the engine use as much as
+  /// needed.
+  ///
+  /// Note: This flag takes effect immediately.
+  static int? get visualTokenBudget =>
+      LiteRtLmNativeRuntime.instance.visualTokenBudget;
+
+  static set visualTokenBudget(int? value) {
+    LiteRtLmNativeRuntime.instance.visualTokenBudget = value;
+  }
 }

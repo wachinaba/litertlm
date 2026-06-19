@@ -33,6 +33,12 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
   bool enableConversationConstrainedDecoding = false;
 
   @override
+  bool filterChannelContentFromKvCache = false;
+
+  @override
+  int? visualTokenBudget;
+
+  @override
   EngineHandle createEngine(EngineConfig config) {
     return _FfiEngineHandle(settings: _createEngineSettings(config));
   }
@@ -319,6 +325,7 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
     String? extraContextJson,
   }) async {
     final ffiConversation = conversation as _FfiConversationHandle;
+    final optionalArgs = _createConversationOptionalArgs();
     final messageJsonPointer = messageJson.toNativeUtf8();
     final extraContextPointer = _toOptionalNativeUtf8(extraContextJson);
     Pointer<Opaque> response;
@@ -327,9 +334,10 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
         ffiConversation.pointer,
         messageJsonPointer,
         extraContextPointer,
-        nullptr,
+        optionalArgs,
       );
     } finally {
+      _deleteConversationOptionalArgs(optionalArgs);
       malloc.free(messageJsonPointer);
       _freeOptionalNativeUtf8(extraContextPointer);
     }
@@ -358,6 +366,7 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
     required void Function(Object error, StackTrace stackTrace) onError,
   }) {
     final ffiConversation = conversation as _FfiConversationHandle;
+    final optionalArgs = _createConversationOptionalArgs();
     final messageJsonPointer = messageJson.toNativeUtf8();
     final extraContextPointer = _toOptionalNativeUtf8(extraContextJson);
     late final _FfiStreamCallback streamCallback;
@@ -378,16 +387,21 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
       extraContextPointer: extraContextPointer,
     );
 
-    final result = _conversationSendMessageStream(
-      ffiConversation.pointer,
-      messageJsonPointer,
-      extraContextPointer,
-      nullptr,
-      Native.addressOf<NativeFunction<_StreamCallbackNative>>(
-        _streamCallbackBridge,
-      ),
-      callback.nativeFunction.cast<Opaque>(),
-    );
+    final int result;
+    try {
+      result = _conversationSendMessageStream(
+        ffiConversation.pointer,
+        messageJsonPointer,
+        extraContextPointer,
+        optionalArgs,
+        Native.addressOf<NativeFunction<_StreamCallbackNative>>(
+          _streamCallbackBridge,
+        ),
+        callback.nativeFunction.cast<Opaque>(),
+      );
+    } finally {
+      _deleteConversationOptionalArgs(optionalArgs);
+    }
 
     if (result != 0) {
       streamCallback.error = LiteRtLmException(
@@ -678,6 +692,18 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
       loraConfig?.audioLoraPath,
       _sessionConfigSetAudioLoraPath,
     );
+    final maxOutputTokens = dartSessionConfig.maxOutputTokens;
+    if (maxOutputTokens != null) {
+      _sessionConfigSetMaxOutputTokens(nativeSessionConfig, maxOutputTokens);
+    }
+    final applyPromptTemplateInSession =
+        dartSessionConfig.applyPromptTemplateInSession;
+    if (applyPromptTemplateInSession != null) {
+      _sessionConfigSetApplyPromptTemplate(
+        nativeSessionConfig,
+        applyPromptTemplateInSession,
+      );
+    }
   }
 
   T _withInputData<T>(
@@ -815,6 +841,38 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
 
     if (enableConversationConstrainedDecoding) {
       _conversationConfigSetEnableConstrainedDecoding(conversationConfig, true);
+    }
+
+    if (filterChannelContentFromKvCache) {
+      _conversationConfigSetFilterChannelContentFromKvCache(
+        conversationConfig,
+        true,
+      );
+    }
+  }
+
+  Pointer<Opaque> _createConversationOptionalArgs() {
+    final visualTokenBudget = this.visualTokenBudget;
+    if (visualTokenBudget == null) {
+      return nullptr;
+    }
+
+    final optionalArgs = _conversationOptionalArgsCreate();
+    if (optionalArgs == nullptr) {
+      throw const LiteRtLmException(
+        'Could not create LiteRT-LM conversation optional args.',
+      );
+    }
+    _conversationOptionalArgsSetVisualTokenBudget(
+      optionalArgs,
+      visualTokenBudget,
+    );
+    return optionalArgs;
+  }
+
+  void _deleteConversationOptionalArgs(Pointer<Opaque> optionalArgs) {
+    if (optionalArgs != nullptr) {
+      _conversationOptionalArgsDelete(optionalArgs);
     }
   }
 
@@ -1044,6 +1102,8 @@ typedef _EngineCreateSessionNative =
     Pointer<Opaque> Function(Pointer<Opaque>, Pointer<Opaque>);
 typedef _SessionConfigSetSamplerParamsNative =
     Void Function(Pointer<Opaque>, Pointer<_LiteRtLmSamplerParams>);
+typedef _SessionConfigSetIntNative = Void Function(Pointer<Opaque>, Int);
+typedef _SessionConfigSetBoolNative = Void Function(Pointer<Opaque>, Bool);
 typedef _SessionConfigSetLoraPathNative =
     Int Function(Pointer<Opaque>, Pointer<Utf8>);
 typedef _ConversationConfigSetSessionConfigNative =
@@ -1278,6 +1338,24 @@ external void _sessionConfigSetSamplerParams(
   Pointer<_LiteRtLmSamplerParams> samplerParams,
 );
 
+@Native<_SessionConfigSetIntNative>(
+  symbol: 'litert_lm_session_config_set_max_output_tokens',
+  assetId: _codeAssetName,
+)
+external void _sessionConfigSetMaxOutputTokens(
+  Pointer<Opaque> config,
+  int maxOutputTokens,
+);
+
+@Native<_SessionConfigSetBoolNative>(
+  symbol: 'litert_lm_session_config_set_apply_prompt_template',
+  assetId: _codeAssetName,
+)
+external void _sessionConfigSetApplyPromptTemplate(
+  Pointer<Opaque> config,
+  bool applyPromptTemplate,
+);
+
 @Native<_SessionConfigSetLoraPathNative>(
   symbol: 'litert_lm_session_config_set_lora_path',
   assetId: _codeAssetName,
@@ -1362,11 +1440,42 @@ external void _conversationConfigSetEnableConstrainedDecoding(
   bool enableConstrainedDecoding,
 );
 
+@Native<_ConversationConfigSetBoolNative>(
+  symbol:
+      'litert_lm_conversation_config_set_filter_channel_content_from_kv_cache',
+  assetId: _codeAssetName,
+)
+external void _conversationConfigSetFilterChannelContentFromKvCache(
+  Pointer<Opaque> config,
+  bool filterChannelContentFromKvCache,
+);
+
 @Native<Void Function(Pointer<Opaque>)>(
   symbol: 'litert_lm_conversation_config_delete',
   assetId: _codeAssetName,
 )
 external void _conversationConfigDelete(Pointer<Opaque> config);
+
+@Native<Pointer<Opaque> Function()>(
+  symbol: 'litert_lm_conversation_optional_args_create',
+  assetId: _codeAssetName,
+)
+external Pointer<Opaque> _conversationOptionalArgsCreate();
+
+@Native<Void Function(Pointer<Opaque>, Int)>(
+  symbol: 'litert_lm_conversation_optional_args_set_visual_token_budget',
+  assetId: _codeAssetName,
+)
+external void _conversationOptionalArgsSetVisualTokenBudget(
+  Pointer<Opaque> optionalArgs,
+  int visualTokenBudget,
+);
+
+@Native<Void Function(Pointer<Opaque>)>(
+  symbol: 'litert_lm_conversation_optional_args_delete',
+  assetId: _codeAssetName,
+)
+external void _conversationOptionalArgsDelete(Pointer<Opaque> optionalArgs);
 
 @Native<_ConversationCreateNative>(
   symbol: 'litert_lm_conversation_create',

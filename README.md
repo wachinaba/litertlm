@@ -225,6 +225,8 @@ Supported `ExperimentalFlags`:
 * `enableBenchmark`: Enables benchmark collection for engines created after the flag is set.
 * `enableConversationConstrainedDecoding`: Enables constrained decoding for conversations created after the flag is set.
 * `enableSpeculativeDecoding`: Controls speculative decoding for engines created after the flag is set. `null` uses the model default, `true` enables it, and `false` disables it.
+* `filterChannelContentFromKvCache`: Whether to filter channel content from the KV cache.
+* `visualTokenBudget`: The visual token budget.
 
 ## Troubleshooting
 
