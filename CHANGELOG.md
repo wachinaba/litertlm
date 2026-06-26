@@ -1,3 +1,7 @@
+## 0.0.8
+
+* Improved WASM compatibility.
+
 ## 0.0.7
 
 * Added `MessageCallback.onMessageDone` for message boundaries.

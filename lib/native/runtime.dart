@@ -1,4 +1,7 @@
-import 'io.dart' if (dart.library.js_interop) 'web.dart' as platform;
+import 'none.dart'
+    if (dart.library.io) 'io.dart'
+    if (dart.library.js_interop) 'web.dart'
+    as platform;
 
 import '../litertlm/benchmark.dart';
 import '../litertlm/config.dart';

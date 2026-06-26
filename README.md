@@ -5,6 +5,8 @@ Pub Package: https://pub.dev/packages/litertlm
 
 API Reference: https://pub.dev/documentation/litertlm/latest/
 
+Live Example Flutter Project: https://github.com/yangyuan/agentic
+
 Powered by LiteRT-LM v0.13.1.
 
 ## Overview
