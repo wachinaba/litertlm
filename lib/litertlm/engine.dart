@@ -125,6 +125,7 @@ class Conversation {
   Future<Message> sendMessage(
     Message message, {
     Map<String, Object?>? extraContext,
+    int? maxOutputTokens,
   }) async {
     final handle = _handle;
     if (handle == null) {
@@ -139,6 +140,7 @@ class Conversation {
         handle,
         jsonEncode(currentMessage.toJson()),
         extraContextJson: extraContextJson,
+        maxOutputTokens: maxOutputTokens,
       );
       if (!_automaticToolCalling || response.toolCalls.isEmpty) {
         return response;
@@ -154,6 +156,7 @@ class Conversation {
   Stream<Message> sendMessageStream(
     Message message, {
     Map<String, Object?>? extraContext,
+    int? maxOutputTokens,
   }) {
     late StreamController<Message> controller;
     var isCanceled = false;
@@ -186,6 +189,7 @@ class Conversation {
             },
           ),
           extraContext: extraContext,
+          maxOutputTokens: maxOutputTokens,
         ).ignore();
       },
       onCancel: () async {
@@ -202,6 +206,7 @@ class Conversation {
     Message message,
     MessageCallback callback, {
     Map<String, Object?>? extraContext,
+    int? maxOutputTokens,
   }) async {
     final handle = _handle;
     if (handle == null) {
@@ -216,6 +221,7 @@ class Conversation {
       handleToolCalls: _handleToolCalls,
       automaticToolCalling: _automaticToolCalling,
       extraContextJson: extraContextJson,
+      maxOutputTokens: maxOutputTokens,
     );
     return controller.send(message);
   }
@@ -273,6 +279,15 @@ class Conversation {
       handle,
       jsonEncode(message.toJson()),
     );
+  }
+
+  /// Renders the conversation preface into a string.
+  Future<String> renderPreface() {
+    final handle = _handle;
+    if (handle == null) {
+      throw const LiteRtLmException('Conversation is already disposed.');
+    }
+    return LiteRtLmNativeRuntime.instance.renderPreface(handle);
   }
 
   /// Cancels the ongoing inference process.
@@ -334,6 +349,7 @@ class _ToolCallingMessageCallback {
     required this.handleToolCalls,
     required this.automaticToolCalling,
     required this.extraContextJson,
+    required this.maxOutputTokens,
   });
 
   final ConversationHandle handle;
@@ -341,6 +357,7 @@ class _ToolCallingMessageCallback {
   final Future<Message> Function(List<ToolCall> toolCalls) handleToolCalls;
   final bool automaticToolCalling;
   final String? extraContextJson;
+  final int? maxOutputTokens;
   final Completer<void> _done = Completer<void>();
   List<ToolCall>? _pendingToolCalls;
   var _toolCallCount = 0;
@@ -362,6 +379,7 @@ class _ToolCallingMessageCallback {
         handle,
         jsonEncode(message.toJson()),
         extraContextJson: extraContextJson,
+        maxOutputTokens: maxOutputTokens,
         onMessage: _onMessage,
         onDone: _onDone,
         onError: _onError,

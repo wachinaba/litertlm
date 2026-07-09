@@ -47,6 +47,36 @@ final class ExperimentalFlags {
         value;
   }
 
+  /// Whether tool-call tokens are emitted while responses are streaming.
+  ///
+  /// Token fragments are emitted in [Message.channels] using
+  /// [conversationToolCallStreamingChannelName] as the key. The runtime emits
+  /// the complete call in [Message.toolCalls] when ready. With automatic tool
+  /// calling enabled, the complete call is consumed and executed before being
+  /// forwarded to the caller.
+  ///
+  /// This flag is read when a new [Conversation] is created.
+  static bool get enableConversationToolCallStreaming =>
+      LiteRtLmNativeRuntime.instance.enableConversationToolCallStreaming;
+
+  static set enableConversationToolCallStreaming(bool value) {
+    LiteRtLmNativeRuntime.instance.enableConversationToolCallStreaming = value;
+  }
+
+  /// The [Message.channels] key used for streamed tool-call token fragments.
+  ///
+  /// This value is read when a new [Conversation] is created.
+  static String get conversationToolCallStreamingChannelName =>
+      LiteRtLmNativeRuntime.instance.conversationToolCallStreamingChannelName;
+
+  static set conversationToolCallStreamingChannelName(String value) {
+    if (value.isEmpty) {
+      throw ArgumentError.value(value, 'value', 'Must not be empty.');
+    }
+    LiteRtLmNativeRuntime.instance.conversationToolCallStreamingChannelName =
+        value;
+  }
+
   /// Whether channel content is filtered from the KV cache.
   ///
   /// If true, channel content (e.g. reasoning) will be filtered from the KV

@@ -34,6 +34,12 @@ String _encodeBackendJson(Backend backend) {
 class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
   final _class = JClass.forName('org/rockstudio/litertlm/LiteRtLmJniBridge');
 
+  @override
+  bool enableConversationToolCallStreaming = false;
+
+  @override
+  String conversationToolCallStreamingChannelName = 'tool_call';
+
   late final _createEngine = _class.staticMethodId(
     'createEngine',
     '(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;)Lcom/google/ai/edge/litertlm/Engine;',
@@ -117,6 +123,10 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
   late final _renderMessageToString = _class.staticMethodId(
     'renderMessageToString',
     '(Lcom/google/ai/edge/litertlm/Conversation;Ljava/lang/String;)Ljava/lang/String;',
+  );
+  late final _renderPreface = _class.staticMethodId(
+    'renderPreface',
+    '(Lcom/google/ai/edge/litertlm/Conversation;)Ljava/lang/String;',
   );
   late final _deleteConversation = _class.staticMethodId(
     'deleteConversation',
@@ -280,6 +290,16 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
 
   @override
   EngineHandle createEngine(EngineConfig config) {
+    if (config.loraRank != null) {
+      throw UnsupportedError(
+        'loraRank is not supported by the LiteRT-LM Android SDK.',
+      );
+    }
+    if (config.audioLoraRank != null) {
+      throw UnsupportedError(
+        'audioLoraRank is not supported by the LiteRT-LM Android SDK.',
+      );
+    }
     final modelPath = config.modelPath.toJString();
     final backend = _encodeBackendJson(config.backend).toJString();
     final visionBackend =
@@ -381,6 +401,11 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
     EngineHandle engine,
     ConversationConfig config,
   ) async {
+    if (enableConversationToolCallStreaming) {
+      throw UnsupportedError(
+        'ExperimentalFlags.enableConversationToolCallStreaming is not supported by the LiteRT-LM Android SDK.',
+      );
+    }
     final sessionConfig = config.sessionConfig;
     if (sessionConfig?.maxOutputTokens != null) {
       throw UnsupportedError(
@@ -440,7 +465,13 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
     ConversationHandle conversation,
     String messageJson, {
     String? extraContextJson,
+    int? maxOutputTokens,
   }) async {
+    if (maxOutputTokens != null) {
+      throw UnsupportedError(
+        'Per-send maxOutputTokens is not supported by the LiteRT-LM Android SDK.',
+      );
+    }
     final jniConversation = conversation as _JniConversationHandle;
     final message = messageJson.toJString();
     final extraContext = (extraContextJson ?? '').toJString();
@@ -464,10 +495,16 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
     ConversationHandle conversation,
     String messageJson, {
     String? extraContextJson,
+    int? maxOutputTokens,
     required void Function(Message message) onMessage,
     required void Function() onDone,
     required void Function(Object error, StackTrace stackTrace) onError,
   }) {
+    if (maxOutputTokens != null) {
+      throw UnsupportedError(
+        'Per-send maxOutputTokens is not supported by the LiteRT-LM Android SDK.',
+      );
+    }
     final jniConversation = conversation as _JniConversationHandle;
     final done = Completer<void>();
     JObject? streamCallback;
@@ -686,6 +723,14 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
     } finally {
       message.release();
     }
+  }
+
+  @override
+  Future<String> renderPreface(ConversationHandle conversation) async {
+    final jniConversation = conversation as _JniConversationHandle;
+    return _renderPreface
+        .call(_class, JString.type, [jniConversation.conversation])
+        .toDartString(releaseOriginal: true);
   }
 
   @override

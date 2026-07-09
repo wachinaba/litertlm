@@ -29,6 +29,16 @@ abstract interface class LiteRtLmNativeRuntime {
 
   set enableConversationConstrainedDecoding(bool value);
 
+  /// Whether tool-call tokens are streamed when creating conversations.
+  bool get enableConversationToolCallStreaming;
+
+  set enableConversationToolCallStreaming(bool value);
+
+  /// The channel name used for streamed tool-call tokens.
+  String get conversationToolCallStreamingChannelName;
+
+  set conversationToolCallStreamingChannelName(String value);
+
   /// Whether channel content is filtered from the KV cache.
   bool get filterChannelContentFromKvCache;
 
@@ -78,6 +88,7 @@ abstract interface class LiteRtLmNativeRuntime {
     ConversationHandle conversation,
     String messageJson, {
     String? extraContextJson,
+    int? maxOutputTokens,
   });
 
   /// Sends a message and streams response chunks to a callback.
@@ -85,6 +96,7 @@ abstract interface class LiteRtLmNativeRuntime {
     ConversationHandle conversation,
     String messageJson, {
     String? extraContextJson,
+    int? maxOutputTokens,
     required void Function(Message message) onMessage,
     required void Function() onDone,
     required void Function(Object error, StackTrace stackTrace) onError,
@@ -128,6 +140,9 @@ abstract interface class LiteRtLmNativeRuntime {
     ConversationHandle conversation,
     String messageJson,
   );
+
+  /// Renders a native conversation preface.
+  Future<String> renderPreface(ConversationHandle conversation);
 
   /// Deletes a native conversation handle.
   void deleteConversation(ConversationHandle conversation);

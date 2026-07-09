@@ -33,6 +33,12 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
   bool enableConversationConstrainedDecoding = false;
 
   @override
+  bool enableConversationToolCallStreaming = false;
+
+  @override
+  String conversationToolCallStreamingChannelName = 'tool_call';
+
+  @override
   bool filterChannelContentFromKvCache = false;
 
   @override
@@ -126,12 +132,6 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
   }
 
   Pointer<Opaque> _createEngineSettings(EngineConfig config) {
-    if (config.backend case CpuBackend(threadCount: != null)) {
-      throw UnsupportedError(
-        'Backend.cpu.threadCount is not supported by the LiteRT-LM C API.',
-      );
-    }
-
     final modelPath = config.modelPath.toNativeUtf8();
     final backend = config.backend.name.toNativeUtf8();
     final visionBackend = _toOptionalNativeUtf8(config.visionBackend?.name);
@@ -151,6 +151,13 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
       throw const LiteRtLmException(
         'Could not create LiteRT-LM engine settings.',
       );
+    }
+
+    if (config.backend case CpuBackend(:final threadCount?)) {
+      _engineSettingsSetNumThreads(settings, threadCount);
+    }
+    if (config.audioBackend case CpuBackend(:final threadCount?)) {
+      _engineSettingsSetAudioNumThreads(settings, threadCount);
     }
 
     final maxNumTokens = config.maxNumTokens;
@@ -323,9 +330,10 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
     ConversationHandle conversation,
     String messageJson, {
     String? extraContextJson,
+    int? maxOutputTokens,
   }) async {
     final ffiConversation = conversation as _FfiConversationHandle;
-    final optionalArgs = _createConversationOptionalArgs();
+    final optionalArgs = _createConversationOptionalArgs(maxOutputTokens);
     final messageJsonPointer = messageJson.toNativeUtf8();
     final extraContextPointer = _toOptionalNativeUtf8(extraContextJson);
     Pointer<Opaque> response;
@@ -361,12 +369,13 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
     ConversationHandle conversation,
     String messageJson, {
     String? extraContextJson,
+    int? maxOutputTokens,
     required void Function(Message message) onMessage,
     required void Function() onDone,
     required void Function(Object error, StackTrace stackTrace) onError,
   }) {
     final ffiConversation = conversation as _FfiConversationHandle;
-    final optionalArgs = _createConversationOptionalArgs();
+    final optionalArgs = _createConversationOptionalArgs(maxOutputTokens);
     final messageJsonPointer = messageJson.toNativeUtf8();
     final extraContextPointer = _toOptionalNativeUtf8(extraContextJson);
     late final _FfiStreamCallback streamCallback;
@@ -624,6 +633,18 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
   }
 
   @override
+  Future<String> renderPreface(ConversationHandle conversation) async {
+    final ffiConversation = conversation as _FfiConversationHandle;
+    final rendered = _conversationRenderPrefaceToString(
+      ffiConversation.pointer,
+    );
+    if (rendered == nullptr) {
+      throw const LiteRtLmException('Could not render LiteRT-LM preface.');
+    }
+    return rendered.toDartString();
+  }
+
+  @override
   void deleteConversation(ConversationHandle conversation) {
     final ffiConversation = conversation as _FfiConversationHandle;
     _conversationDelete(ffiConversation.pointer);
@@ -826,7 +847,7 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
   ) {
     final systemMessage = config.systemMessage;
     if (systemMessage != null) {
-      final systemMessageJson = jsonEncode(systemMessage.toJson());
+      final systemMessageJson = jsonEncode(systemMessage.contents.toJson());
       _withNativeUtf8(systemMessageJson, (pointer) {
         _conversationConfigSetSystemMessage(conversationConfig, pointer);
       });
@@ -866,11 +887,23 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
         true,
       );
     }
+
+    if (enableConversationToolCallStreaming) {
+      _withNativeUtf8(conversationToolCallStreamingChannelName, (
+        channelNamePointer,
+      ) {
+        _conversationConfigSetStreamToolCalls(
+          conversationConfig,
+          true,
+          channelNamePointer,
+        );
+      });
+    }
   }
 
-  Pointer<Opaque> _createConversationOptionalArgs() {
+  Pointer<Opaque> _createConversationOptionalArgs(int? maxOutputTokens) {
     final visualTokenBudget = this.visualTokenBudget;
-    if (visualTokenBudget == null) {
+    if (visualTokenBudget == null && maxOutputTokens == null) {
       return nullptr;
     }
 
@@ -880,10 +913,18 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
         'Could not create LiteRT-LM conversation optional args.',
       );
     }
-    _conversationOptionalArgsSetVisualTokenBudget(
-      optionalArgs,
-      visualTokenBudget,
-    );
+    if (visualTokenBudget != null) {
+      _conversationOptionalArgsSetVisualTokenBudget(
+        optionalArgs,
+        visualTokenBudget,
+      );
+    }
+    if (maxOutputTokens != null) {
+      _conversationOptionalArgsSetMaxOutputTokens(
+        optionalArgs,
+        maxOutputTokens,
+      );
+    }
     return optionalArgs;
   }
 
@@ -1154,6 +1195,8 @@ typedef _EngineSettingsSetCacheDirNative =
     Void Function(Pointer<Opaque>, Pointer<Utf8>);
 typedef _EngineSettingsSetLiteRtDispatchLibDirNative =
     Void Function(Pointer<Opaque>, Pointer<Utf8>);
+typedef _EngineSettingsSetNumThreadsNative =
+    Void Function(Pointer<Opaque>, Int);
 typedef _EngineSettingsSetLoraRankNative = Void Function(Pointer<Opaque>, Int);
 typedef _EngineSettingsSetBoolNative = Void Function(Pointer<Opaque>, Bool);
 typedef _EngineSettingsSetSupportedLoraRanksNative =
@@ -1174,6 +1217,8 @@ typedef _ConversationConfigSetSessionConfigNative =
 typedef _ConversationConfigSetJsonNative =
     Void Function(Pointer<Opaque>, Pointer<Utf8>);
 typedef _ConversationConfigSetBoolNative = Void Function(Pointer<Opaque>, Bool);
+typedef _ConversationConfigSetStreamToolCallsNative =
+    Void Function(Pointer<Opaque>, Bool, Pointer<Utf8>);
 typedef _ConversationCreateNative =
     Pointer<Opaque> Function(Pointer<Opaque>, Pointer<Opaque>);
 typedef _InputDataCreateNative =
@@ -1218,6 +1263,8 @@ typedef _ConversationSendMessageStreamNative =
     );
 typedef _ConversationRenderMessageToStringNative =
     Pointer<Utf8> Function(Pointer<Opaque>, Pointer<Utf8>);
+typedef _ConversationRenderPrefaceToStringNative =
+    Pointer<Utf8> Function(Pointer<Opaque>);
 typedef _BenchmarkInfoGetValueNative = Double Function(Pointer<Opaque>);
 typedef _BenchmarkInfoGetCountNative = Int Function(Pointer<Opaque>);
 typedef _BenchmarkInfoGetValueAtNative = Double Function(Pointer<Opaque>, Int);
@@ -1274,6 +1321,24 @@ external void _engineSettingsSetCacheDir(
 external void _engineSettingsSetLiteRtDispatchLibDir(
   Pointer<Opaque> settings,
   Pointer<Utf8> libDir,
+);
+
+@Native<_EngineSettingsSetNumThreadsNative>(
+  symbol: 'litert_lm_engine_settings_set_num_threads',
+  assetId: _codeAssetName,
+)
+external void _engineSettingsSetNumThreads(
+  Pointer<Opaque> settings,
+  int numThreads,
+);
+
+@Native<_EngineSettingsSetNumThreadsNative>(
+  symbol: 'litert_lm_engine_settings_set_audio_num_threads',
+  assetId: _codeAssetName,
+)
+external void _engineSettingsSetAudioNumThreads(
+  Pointer<Opaque> settings,
+  int numThreads,
 );
 
 @Native<Void Function(Pointer<Opaque>)>(
@@ -1528,6 +1593,16 @@ external void _conversationConfigSetFilterChannelContentFromKvCache(
   bool filterChannelContentFromKvCache,
 );
 
+@Native<_ConversationConfigSetStreamToolCallsNative>(
+  symbol: 'litert_lm_conversation_config_set_stream_tool_calls',
+  assetId: _codeAssetName,
+)
+external void _conversationConfigSetStreamToolCalls(
+  Pointer<Opaque> config,
+  bool streamToolCalls,
+  Pointer<Utf8> channelName,
+);
+
 @Native<Void Function(Pointer<Opaque>)>(
   symbol: 'litert_lm_conversation_config_delete',
   assetId: _codeAssetName,
@@ -1547,6 +1622,15 @@ external Pointer<Opaque> _conversationOptionalArgsCreate();
 external void _conversationOptionalArgsSetVisualTokenBudget(
   Pointer<Opaque> optionalArgs,
   int visualTokenBudget,
+);
+
+@Native<Void Function(Pointer<Opaque>, Int)>(
+  symbol: 'litert_lm_conversation_optional_args_set_max_output_tokens',
+  assetId: _codeAssetName,
+)
+external void _conversationOptionalArgsSetMaxOutputTokens(
+  Pointer<Opaque> optionalArgs,
+  int maxOutputTokens,
 );
 
 @Native<Void Function(Pointer<Opaque>)>(
@@ -1781,6 +1865,14 @@ external void _streamCallbackContextDelete(Pointer<Opaque> context);
 external Pointer<Utf8> _conversationRenderMessageToString(
   Pointer<Opaque> conversation,
   Pointer<Utf8> messageJson,
+);
+
+@Native<_ConversationRenderPrefaceToStringNative>(
+  symbol: 'litert_lm_conversation_render_preface_to_string',
+  assetId: _codeAssetName,
+)
+external Pointer<Utf8> _conversationRenderPrefaceToString(
+  Pointer<Opaque> conversation,
 );
 
 @Native<_AppleStreamCallbackNative>(

@@ -220,13 +220,46 @@ print(response.text);
 
 To handle tool calls yourself, disable automatic tool calling and inspect `response.toolCalls`.
 
+### Tool Call Streaming
+
+For supported models, tool-call streaming can be enabled.
+
+```dart
+ExperimentalFlags.enableConversationToolCallStreaming = true;
+
+final conversation = await engine.createConversation(
+  ConversationConfig(
+    automaticToolCalling: false,
+    tools: [WeatherTool()],
+  ),
+);
+
+final toolCallContent = StringBuffer();
+
+await for (final message in conversation.sendMessageStream(
+  Message.user('What is the weather in Seattle?'),
+)) {
+  final fragment = message.channels['tool_call'];
+  if (fragment != null) {
+    toolCallContent.write(fragment);
+  }
+}
+```
+
+The `tool_call` channel emits consecutive pieces of the raw tool-call content.
+The format depends on LiteRT-LM's internal data processor and is not currently unified across models.
+For Gemma 4, expect a format such as `call:get_weather{city:<|"|>Mountain View<|"|>}`, where `<|"|>` is the quote separator token. Other models might emit different formats.
+After the fragments, a later message contains the complete parsed `ToolCall` in `Message.toolCalls`.
+
 ### ExperimentalFlags
 `ExperimentalFlags` provides switches for experimental runtime behavior. The upstream Kotlin SDK exposes `ExperimentalFlags` as global runtime flags. To provide consistent behavior across platforms, `litertlm` follows the same design for `ExperimentalFlags`.
 
 Supported `ExperimentalFlags`:
 * `enableBenchmark`: Enables benchmark collection for engines created after the flag is set.
 * `enableConversationConstrainedDecoding`: Enables constrained decoding for conversations created after the flag is set.
+* `enableConversationToolCallStreaming`: Enables tool-call token streaming for subsequently created conversations.
 * `enableSpeculativeDecoding`: Controls speculative decoding for engines created after the flag is set. `null` uses the model default, `true` enables it, and `false` disables it.
+* `conversationToolCallStreamingChannelName`: Sets the channel name for streamed tool-call tokens.
 * `filterChannelContentFromKvCache`: Whether to filter channel content from the KV cache.
 * `visualTokenBudget`: The visual token budget.
 

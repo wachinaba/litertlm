@@ -199,6 +199,12 @@ object LiteRtLmJniBridge {
     }
 
     @JvmStatic
+    @OptIn(ExperimentalApi::class)
+    fun renderPreface(conversation: Conversation): String {
+        return conversation.renderPrefaceIntoString()
+    }
+
+    @JvmStatic
     fun deleteConversation(conversation: Conversation) {
         conversation.close()
     }

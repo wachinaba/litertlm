@@ -15,6 +15,7 @@ const _sdkModuleUrl =
     'https://cdn.jsdelivr.net/npm/@litert-lm/core@0.14.0/+esm';
 const _sdkLoadTimeout = Duration(seconds: 30);
 const _samplerTypeTopP = 2;
+const _unavailableInitTimeInSecond = 0.0;
 
 /// Creates the web native runtime.
 LiteRtLmNativeRuntime createRuntime() => _LiteRtLmWebRuntime();
@@ -32,6 +33,12 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
   bool enableConversationConstrainedDecoding = false;
 
   @override
+  bool enableConversationToolCallStreaming = false;
+
+  @override
+  String conversationToolCallStreamingChannelName = 'tool_call';
+
+  @override
   bool filterChannelContentFromKvCache = false;
 
   @override
@@ -39,6 +46,31 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
 
   @override
   EngineHandle createEngine(EngineConfig config) {
+    if (config.visionBackend != null) {
+      throw UnsupportedError(
+        'visionBackend is not supported by the LiteRT-LM JS SDK.',
+      );
+    }
+    if (config.audioBackend != null) {
+      throw UnsupportedError(
+        'audioBackend is not supported by the LiteRT-LM JS SDK.',
+      );
+    }
+    if (config.cacheDir != null && config.cacheDir!.isNotEmpty) {
+      throw UnsupportedError(
+        'cacheDir is not supported by the LiteRT-LM JS SDK.',
+      );
+    }
+    if (config.loraRank != null) {
+      throw UnsupportedError(
+        'loraRank is not supported by the LiteRT-LM JS SDK.',
+      );
+    }
+    if (config.audioLoraRank != null) {
+      throw UnsupportedError(
+        'audioLoraRank is not supported by the LiteRT-LM JS SDK.',
+      );
+    }
     if (config.maxNumImages != null) {
       throw UnsupportedError(
         'maxNumImages is not supported by the LiteRT-LM JS SDK.',
@@ -82,7 +114,7 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
             };
           }
           if (benchmarkEnabled) {
-            mainExecutorSettings['advancedSettings'] = {'is_benchmark': true};
+            settings['benchmarkEnabled'] = true;
           }
           if (mainExecutorSettings.isNotEmpty) {
             settings['mainExecutorSettings'] = mainExecutorSettings;
@@ -137,6 +169,11 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
     EngineHandle engine,
     ConversationConfig config,
   ) async {
+    if (enableConversationToolCallStreaming) {
+      throw UnsupportedError(
+        'ExperimentalFlags.enableConversationToolCallStreaming is not supported by the LiteRT-LM JS SDK.',
+      );
+    }
     final conversationConstrainedDecodingEnabled =
         enableConversationConstrainedDecoding;
     final filterChannelContentFromKvCache =
@@ -177,7 +214,13 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
     ConversationHandle conversation,
     String messageJson, {
     String? extraContextJson,
+    int? maxOutputTokens,
   }) async {
+    if (maxOutputTokens != null) {
+      throw UnsupportedError(
+        'Per-send maxOutputTokens is not supported by the LiteRT-LM JS SDK.',
+      );
+    }
     if (visualTokenBudget != null) {
       throw UnsupportedError(
         'ExperimentalFlags.visualTokenBudget is not supported by the LiteRT-LM JS SDK.',
@@ -204,12 +247,18 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
     ConversationHandle conversation,
     String messageJson, {
     String? extraContextJson,
+    int? maxOutputTokens,
     required void Function(Message message) onMessage,
     required void Function() onDone,
     required void Function(Object error, StackTrace stackTrace) onError,
   }) async {
     JSObject? streamReader;
     try {
+      if (maxOutputTokens != null) {
+        throw UnsupportedError(
+          'Per-send maxOutputTokens is not supported by the LiteRT-LM JS SDK.',
+        );
+      }
       if (visualTokenBudget != null) {
         throw UnsupportedError(
           'ExperimentalFlags.visualTokenBudget is not supported by the LiteRT-LM JS SDK.',
@@ -303,17 +352,40 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
 
   @override
   Future<int> getTokenCount(ConversationHandle conversation) async {
-    throw UnsupportedError(
-      'getTokenCount is not supported by the LiteRT-LM JS SDK.',
+    final handle = conversation as _WebConversationHandle;
+    final tokenCount = await _promiseToFuture<JSNumber>(
+      handle.conversation.callMethod<JSPromise<JSNumber>>('getTokenCount'.toJS),
     );
+    return tokenCount.toDartInt;
   }
 
   @override
   Future<BenchmarkInfo> getBenchmarkInfo(
     ConversationHandle conversation,
   ) async {
-    throw UnsupportedError(
-      'getBenchmarkInfo is not supported by the LiteRT-LM JS SDK.',
+    final handle = conversation as _WebConversationHandle;
+    final info = await _promiseToFuture<JSObject>(
+      handle.conversation.callMethod<JSPromise<JSObject>>(
+        'getBenchmarkInfo'.toJS,
+      ),
+    );
+    return BenchmarkInfo(
+      initTimeInSecond: _unavailableInitTimeInSecond,
+      timeToFirstTokenInSecond: info
+          .getProperty<JSNumber>('timeToFirstTokenInSecond'.toJS)
+          .toDartDouble,
+      lastPrefillTokenCount: info
+          .getProperty<JSNumber>('lastPrefillTokenCount'.toJS)
+          .toDartInt,
+      lastDecodeTokenCount: info
+          .getProperty<JSNumber>('lastDecodeTokenCount'.toJS)
+          .toDartInt,
+      lastPrefillTokensPerSecond: info
+          .getProperty<JSNumber>('lastPrefillTokensPerSecond'.toJS)
+          .toDartDouble,
+      lastDecodeTokensPerSecond: info
+          .getProperty<JSNumber>('lastDecodeTokensPerSecond'.toJS)
+          .toDartDouble,
     );
   }
 
@@ -324,6 +396,13 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
   ) async {
     throw UnsupportedError(
       'renderMessageIntoString is not supported by the LiteRT-LM JS SDK.',
+    );
+  }
+
+  @override
+  Future<String> renderPreface(ConversationHandle conversation) async {
+    throw UnsupportedError(
+      'renderPreface is not supported by the LiteRT-LM JS SDK.',
     );
   }
 

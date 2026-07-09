@@ -1,3 +1,12 @@
+## 0.0.10
+
+* Added Web support for conversation token counts and benchmark information.
+* Added opt-in native tool-call token streaming.
+* Added native CPU thread-count configuration.
+* Added `maxOutputTokens` to `Conversation.sendMessage`, `Conversation.sendMessageStream`, and `Conversation.sendMessageWithCallback`.
+* Added `Conversation.renderPreface` for native platforms.
+* Fixed FFI serialization of `ConversationConfig.systemMessage`.
+
 ## 0.0.9
 
 * Updated native runtime dependencies to LiteRT-LM v0.14.0.

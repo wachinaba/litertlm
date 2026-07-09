@@ -49,6 +49,55 @@ void main() {
     }
   });
 
+  testWidgets('rejects unsupported engine configuration', (tester) async {
+    if (kIsWeb) {
+      expect(
+        () => Engine(
+          engineConfig: const EngineConfig(
+            modelPath: 'unused',
+            visionBackend: Backend.cpu(),
+          ),
+        ),
+        throwsUnsupportedError,
+      );
+      expect(
+        () => Engine(
+          engineConfig: const EngineConfig(
+            modelPath: 'unused',
+            audioBackend: Backend.cpu(),
+          ),
+        ),
+        throwsUnsupportedError,
+      );
+      expect(
+        () => Engine(
+          engineConfig: const EngineConfig(
+            modelPath: 'unused',
+            cacheDir: 'unused',
+          ),
+        ),
+        throwsUnsupportedError,
+      );
+    }
+    if (kIsWeb || defaultTargetPlatform == TargetPlatform.android) {
+      expect(
+        () => Engine(
+          engineConfig: const EngineConfig(modelPath: 'unused', loraRank: 4),
+        ),
+        throwsUnsupportedError,
+      );
+      expect(
+        () => Engine(
+          engineConfig: const EngineConfig(
+            modelPath: 'unused',
+            audioLoraRank: 4,
+          ),
+        ),
+        throwsUnsupportedError,
+      );
+    }
+  });
+
   testWidgets('runs inference', (tester) async {
     final modelPath = await resolveModelAssetPath(
       'assets/models/test_lm.litertlm',
@@ -63,11 +112,113 @@ void main() {
     Conversation? conversation;
     try {
       await engine.initialize();
-      conversation = await engine.createConversation();
+      conversation = await engine.createConversation(
+        ConversationConfig(
+          systemMessage: Message.system('You are a helpful assistant.'),
+        ),
+      );
+      if (kIsWeb) {
+        await expectLater(conversation.renderPreface(), throwsUnsupportedError);
+      } else {
+        expect(
+          await conversation.renderPreface(),
+          contains('You are a helpful assistant.'),
+        );
+      }
       final response = await conversation.sendMessage(Message.user('Hello'));
       expect(response.text.length, greaterThan(5));
       if (!kIsWeb) {
         expect(await conversation.getTokenCount(), greaterThan(0));
+      }
+    } finally {
+      await conversation?.dispose();
+      await engine.dispose();
+    }
+  });
+
+  testWidgets('runs inference with CPU thread count', (tester) async {
+    final modelPath = await resolveModelAssetPath(
+      'assets/models/test_lm.litertlm',
+    );
+    final engine = Engine(
+      engineConfig: EngineConfig(
+        modelPath: modelPath,
+        backend: Backend.cpu(threadCount: 2),
+        maxNumTokens: 10,
+      ),
+    );
+    Conversation? conversation;
+    try {
+      await engine.initialize();
+      conversation = await engine.createConversation();
+      final response = await conversation.sendMessage(Message.user('Hello'));
+      expect(response.text.length, greaterThan(5));
+    } finally {
+      await conversation?.dispose();
+      await engine.dispose();
+    }
+  });
+
+  testWidgets('limits output tokens for one message', (tester) async {
+    final modelPath = await resolveModelAssetPath(
+      'assets/models/test_lm.litertlm',
+    );
+    final engine = Engine(
+      engineConfig: EngineConfig(
+        modelPath: modelPath,
+        backend: Backend.cpu(),
+        maxNumTokens: 10,
+      ),
+    );
+    Conversation? conversation;
+    try {
+      await engine.initialize();
+      conversation = await engine.createConversation();
+      final response = conversation.sendMessage(
+        Message.user('Hello'),
+        maxOutputTokens: 1,
+      );
+      if (kIsWeb || defaultTargetPlatform == TargetPlatform.android) {
+        await expectLater(response, throwsUnsupportedError);
+      } else {
+        final text = (await response).text;
+        expect(text, isNotEmpty);
+        expect(text.length, lessThan(5));
+      }
+    } finally {
+      await conversation?.dispose();
+      await engine.dispose();
+    }
+  });
+
+  testWidgets('limits output tokens for one message stream', (tester) async {
+    final modelPath = await resolveModelAssetPath(
+      'assets/models/test_lm.litertlm',
+    );
+    final engine = Engine(
+      engineConfig: EngineConfig(
+        modelPath: modelPath,
+        backend: Backend.cpu(),
+        maxNumTokens: 10,
+      ),
+    );
+    Conversation? conversation;
+    try {
+      await engine.initialize();
+      conversation = await engine.createConversation();
+      final stream = conversation.sendMessageStream(
+        Message.user('Hello'),
+        maxOutputTokens: 1,
+      );
+      if (kIsWeb || defaultTargetPlatform == TargetPlatform.android) {
+        await expectLater(stream, emitsError(isA<UnsupportedError>()));
+      } else {
+        final output = StringBuffer();
+        await for (final message in stream) {
+          output.write(message.text);
+        }
+        expect(output, isNotEmpty);
+        expect(output.length, lessThan(5));
       }
     } finally {
       await conversation?.dispose();
@@ -244,7 +395,7 @@ void main() {
       engineConfig: EngineConfig(
         modelPath: modelPath,
         backend: Backend.cpu(),
-        audioBackend: Backend.cpu(),
+        audioBackend: Backend.cpu(threadCount: 2),
       ),
     );
     Conversation? conversation;
@@ -288,6 +439,66 @@ void main() {
       expect(response.toolCalls, isNotEmpty);
       expect(response.toolCalls.first.name, 'get_weather');
     } finally {
+      await conversation?.dispose();
+      await engine.dispose();
+    }
+  });
+
+  testWidgets('runs inference streaming tool call', (tester) async {
+    final modelPath = await resolveModelAssetPath(
+      'assets/models/gemma-4-E2B-it.litertlm',
+    );
+    final engine = Engine(
+      engineConfig: EngineConfig(modelPath: modelPath, backend: Backend.cpu()),
+    );
+    Conversation? conversation;
+    try {
+      ExperimentalFlags.enableConversationToolCallStreaming = true;
+      ExperimentalFlags.conversationToolCallStreamingChannelName =
+          'tool_tokens';
+      await engine.initialize();
+
+      if (kIsWeb || defaultTargetPlatform == TargetPlatform.android) {
+        await expectLater(
+          engine.createConversation(
+            ConversationConfig(
+              automaticToolCalling: false,
+              tools: [_WeatherTool()],
+            ),
+          ),
+          throwsUnsupportedError,
+        );
+        return;
+      }
+
+      conversation = await engine.createConversation(
+        ConversationConfig(
+          automaticToolCalling: false,
+          tools: [_WeatherTool()],
+        ),
+      );
+      final toolCallFragments = StringBuffer();
+      final toolCalls = <ToolCall>[];
+      await for (final message in conversation.sendMessageStream(
+        Message.user('Use get_weather for Mountain View.'),
+      )) {
+        final fragment = message.channels['tool_tokens'];
+        if (fragment != null) {
+          toolCallFragments.write(fragment);
+        }
+        toolCalls.addAll(message.toolCalls);
+      }
+      expect(toolCalls, hasLength(1));
+      final toolCall = toolCalls.single;
+      expect(toolCall.name, 'get_weather');
+      expect(toolCall.arguments, {'city': 'Mountain View'});
+      expect(
+        toolCallFragments.toString(),
+        'call:${toolCall.name}{city:<|"|>${toolCall.arguments['city']}<|"|>}',
+      );
+    } finally {
+      ExperimentalFlags.enableConversationToolCallStreaming = false;
+      ExperimentalFlags.conversationToolCallStreamingChannelName = 'tool_call';
       await conversation?.dispose();
       await engine.dispose();
     }
