@@ -1,2 +1,2 @@
 set(LITERTLM_X86_64_URL
-    "https://files.pythonhosted.org/packages/8e/0f/8edfe4800c95e230928529e5c6f305646ce3b7f497bad745a54a8127a52e/litert_lm_api-0.13.1-py3-none-win_amd64.whl")
+    "https://files.pythonhosted.org/packages/d9/ef/36831a18c29b5a8f8283578c77fdd0c823dc8851b05f7a12689ac603c599/litert_lm_api-0.14.0-py3-none-win_amd64.whl")

@@ -377,12 +377,14 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
     ) {
       _handleStreamCallback(streamCallback, chunk, isFinal, errorMessage);
     });
+    final callbackRegistration = _createStreamCallbackRegistration(callback);
     streamCallback = _FfiStreamCallback(
       onMessage: onMessage,
       onDone: onDone,
       onError: onError,
       conversation: ffiConversation.pointer,
       callback: callback,
+      callbackContext: callbackRegistration.context,
       messageJsonPointer: messageJsonPointer,
       extraContextPointer: extraContextPointer,
     );
@@ -394,10 +396,8 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
         messageJsonPointer,
         extraContextPointer,
         optionalArgs,
-        Native.addressOf<NativeFunction<_StreamCallbackNative>>(
-          _streamCallbackBridge,
-        ),
-        callback.nativeFunction.cast<Opaque>(),
+        callbackRegistration.function,
+        callbackRegistration.data,
       );
     } finally {
       _deleteConversationOptionalArgs(optionalArgs);
@@ -492,10 +492,14 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
             errorMessage,
           );
         });
+        final callbackRegistration = _createStreamCallbackRegistration(
+          callback,
+        );
         currentStreamCallback = _FfiTextStreamCallback(
           controller: controller,
           session: ffiSession.pointer,
           callback: callback,
+          callbackContext: callbackRegistration.context,
         );
         streamCallback = currentStreamCallback;
 
@@ -505,10 +509,8 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
             ffiSession.pointer,
             inputs,
             count,
-            Native.addressOf<NativeFunction<_StreamCallbackNative>>(
-              _streamCallbackBridge,
-            ),
-            callback.nativeFunction.cast<Opaque>(),
+            callbackRegistration.function,
+            callbackRegistration.data,
           ),
         );
 
@@ -667,17 +669,20 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
 
     final samplerConfig = dartSessionConfig.samplerConfig;
     if (samplerConfig != null) {
-      final samplerParams = calloc<_LiteRtLmSamplerParams>();
+      final samplerParams = _samplerParamsCreate(_samplerTypeTopP);
+      if (samplerParams == nullptr) {
+        throw const LiteRtLmException(
+          'Could not create LiteRT-LM sampler parameters.',
+        );
+      }
       try {
-        samplerParams.ref
-          ..type = _samplerTypeTopP
-          ..topK = samplerConfig.topK
-          ..topP = samplerConfig.topP
-          ..temperature = samplerConfig.temperature
-          ..seed = samplerConfig.seed;
+        _samplerParamsSetTopK(samplerParams, samplerConfig.topK);
+        _samplerParamsSetTopP(samplerParams, samplerConfig.topP);
+        _samplerParamsSetTemperature(samplerParams, samplerConfig.temperature);
+        _samplerParamsSetSeed(samplerParams, samplerConfig.seed);
         _sessionConfigSetSamplerParams(nativeSessionConfig, samplerParams);
       } finally {
-        calloc.free(samplerParams);
+        _samplerParamsDelete(samplerParams);
       }
     }
 
@@ -708,14 +713,13 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
 
   T _withInputData<T>(
     List<InputData> inputData,
-    T Function(Pointer<_LiteRtLmInputData> inputs, int count) callback,
+    T Function(Pointer<Pointer<Opaque>> inputs, int count) callback,
   ) {
     if (inputData.isEmpty) {
-      return callback(nullptr.cast<_LiteRtLmInputData>(), 0);
+      return callback(nullptr.cast<Pointer<Opaque>>(), 0);
     }
 
-    final inputs = calloc<_LiteRtLmInputData>(inputData.length);
-    final allocations = <Pointer<Uint8>>[];
+    final inputs = calloc<Pointer<Opaque>>(inputData.length);
     try {
       for (var index = 0; index < inputData.length; index += 1) {
         final input = inputData[index];
@@ -729,20 +733,33 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
         };
         final allocationSize = bytes.isEmpty ? 1 : bytes.length;
         final data = calloc<Uint8>(allocationSize);
-        if (bytes.isNotEmpty) {
-          data.asTypedList(allocationSize).setAll(0, bytes);
+        try {
+          if (bytes.isNotEmpty) {
+            data.asTypedList(allocationSize).setAll(0, bytes);
+          }
+          final nativeInput = _inputDataCreate(
+            type,
+            data.cast<Void>(),
+            bytes.length,
+          );
+          if (nativeInput == nullptr) {
+            throw const LiteRtLmException(
+              'Could not create LiteRT-LM input data.',
+            );
+          }
+          inputs[index] = nativeInput;
+        } finally {
+          calloc.free(data);
         }
-        allocations.add(data);
-        inputs[index]
-          ..type = type
-          ..data = data.cast<Void>()
-          ..size = bytes.length;
       }
 
       return callback(inputs, inputData.length);
     } finally {
-      for (final allocation in allocations) {
-        calloc.free(allocation);
+      for (var index = 0; index < inputData.length; index += 1) {
+        final nativeInput = inputs[index];
+        if (nativeInput != nullptr) {
+          _inputDataDelete(nativeInput);
+        }
       }
       calloc.free(inputs);
     }
@@ -918,6 +935,7 @@ class _FfiStreamCallback {
     required this.onError,
     required this.conversation,
     required this.callback,
+    required this.callbackContext,
     required this.messageJsonPointer,
     required this.extraContextPointer,
   });
@@ -927,6 +945,7 @@ class _FfiStreamCallback {
   final void Function(Object error, StackTrace stackTrace) onError;
   final Pointer<Opaque> conversation;
   final NativeCallable<_DartStreamCallbackNative> callback;
+  final Pointer<Opaque> callbackContext;
   final Pointer<Utf8> messageJsonPointer;
   final Pointer<Utf8> extraContextPointer;
   final Completer<void> done = Completer<void>();
@@ -941,14 +960,28 @@ class _FfiTextStreamCallback {
     required this.controller,
     required this.session,
     required this.callback,
+    required this.callbackContext,
   });
 
   final StreamController<String> controller;
   final Pointer<Opaque> session;
   final NativeCallable<_DartStreamCallbackNative> callback;
+  final Pointer<Opaque> callbackContext;
   final Completer<void> done = Completer<void>();
   bool isCanceled = false;
   bool isDone = false;
+}
+
+class _StreamCallbackRegistration {
+  const _StreamCallbackRegistration({
+    required this.function,
+    required this.data,
+    required this.context,
+  });
+
+  final Pointer<NativeFunction<_StreamCallbackPointerNative>> function;
+  final Pointer<Opaque> data;
+  final Pointer<Opaque> context;
 }
 
 void _handleStreamCallback(
@@ -958,6 +991,12 @@ void _handleStreamCallback(
   Pointer<Utf8> errorMessage,
 ) {
   if (streamCallback.isDone) {
+    if (chunk != nullptr) {
+      _nativeFree(chunk.cast<Void>());
+    }
+    if (errorMessage != nullptr) {
+      _nativeFree(errorMessage.cast<Void>());
+    }
     return;
   }
 
@@ -968,15 +1007,20 @@ void _handleStreamCallback(
         streamCallback.stackTrace = StackTrace.current;
       }
     } finally {
+      if (chunk != nullptr) {
+        _nativeFree(chunk.cast<Void>());
+      }
       _nativeFree(errorMessage.cast<Void>());
     }
     scheduleMicrotask(() => _disposeFfiStream(streamCallback));
     return;
   }
 
-  if (chunk != nullptr && !streamCallback.isCanceled) {
+  if (chunk != nullptr) {
     try {
-      streamCallback.onMessage(Message.fromJsonString(chunk.toDartString()));
+      if (!streamCallback.isCanceled) {
+        streamCallback.onMessage(Message.fromJsonString(chunk.toDartString()));
+      }
     } catch (error, stackTrace) {
       streamCallback.error ??= error;
       streamCallback.stackTrace ??= stackTrace;
@@ -1001,6 +1045,9 @@ void _disposeFfiStream(_FfiStreamCallback streamCallback) {
   malloc.free(streamCallback.messageJsonPointer);
   if (streamCallback.extraContextPointer != nullptr) {
     malloc.free(streamCallback.extraContextPointer);
+  }
+  if (streamCallback.callbackContext != nullptr) {
+    _streamCallbackContextDelete(streamCallback.callbackContext);
   }
   streamCallback.callback.close();
   if (!streamCallback.done.isCompleted) {
@@ -1027,6 +1074,12 @@ void _handleTextStreamCallback(
   Pointer<Utf8> errorMessage,
 ) {
   if (streamCallback.isDone) {
+    if (chunk != nullptr) {
+      _nativeFree(chunk.cast<Void>());
+    }
+    if (errorMessage != nullptr) {
+      _nativeFree(errorMessage.cast<Void>());
+    }
     return;
   }
 
@@ -1038,15 +1091,20 @@ void _handleTextStreamCallback(
         );
       }
     } finally {
+      if (chunk != nullptr) {
+        _nativeFree(chunk.cast<Void>());
+      }
       _nativeFree(errorMessage.cast<Void>());
     }
     scheduleMicrotask(() => _disposeFfiTextStream(streamCallback));
     return;
   }
 
-  if (chunk != nullptr && !streamCallback.isCanceled) {
+  if (chunk != nullptr) {
     try {
-      streamCallback.controller.add(chunk.toDartString());
+      if (!streamCallback.isCanceled) {
+        streamCallback.controller.add(chunk.toDartString());
+      }
     } catch (error, stackTrace) {
       streamCallback.controller.addError(error, stackTrace);
     } finally {
@@ -1067,6 +1125,9 @@ void _disposeFfiTextStream(_FfiTextStreamCallback streamCallback) {
   streamCallback.isDone = true;
   if (!streamCallback.isCanceled && !streamCallback.controller.isClosed) {
     unawaited(streamCallback.controller.close());
+  }
+  if (streamCallback.callbackContext != nullptr) {
+    _streamCallbackContextDelete(streamCallback.callbackContext);
   }
   streamCallback.callback.close();
   if (!streamCallback.done.isCompleted) {
@@ -1101,7 +1162,9 @@ typedef _EngineCreateNative = Pointer<Opaque> Function(Pointer<Opaque>);
 typedef _EngineCreateSessionNative =
     Pointer<Opaque> Function(Pointer<Opaque>, Pointer<Opaque>);
 typedef _SessionConfigSetSamplerParamsNative =
-    Void Function(Pointer<Opaque>, Pointer<_LiteRtLmSamplerParams>);
+    Void Function(Pointer<Opaque>, Pointer<Opaque>);
+typedef _SamplerParamsSetIntNative = Void Function(Pointer<Opaque>, Int);
+typedef _SamplerParamsSetFloatNative = Void Function(Pointer<Opaque>, Float);
 typedef _SessionConfigSetIntNative = Void Function(Pointer<Opaque>, Int);
 typedef _SessionConfigSetBoolNative = Void Function(Pointer<Opaque>, Bool);
 typedef _SessionConfigSetLoraPathNative =
@@ -1113,21 +1176,19 @@ typedef _ConversationConfigSetJsonNative =
 typedef _ConversationConfigSetBoolNative = Void Function(Pointer<Opaque>, Bool);
 typedef _ConversationCreateNative =
     Pointer<Opaque> Function(Pointer<Opaque>, Pointer<Opaque>);
+typedef _InputDataCreateNative =
+    Pointer<Opaque> Function(Int, Pointer<Void>, Size);
 typedef _SessionRunPrefillNative =
-    Int Function(Pointer<Opaque>, Pointer<_LiteRtLmInputData>, Size);
+    Int Function(Pointer<Opaque>, Pointer<Pointer<Opaque>>, Size);
 typedef _SessionResponsesNative = Pointer<Opaque> Function(Pointer<Opaque>);
 typedef _SessionGenerateContentNative =
-    Pointer<Opaque> Function(
-      Pointer<Opaque>,
-      Pointer<_LiteRtLmInputData>,
-      Size,
-    );
+    Pointer<Opaque> Function(Pointer<Opaque>, Pointer<Pointer<Opaque>>, Size);
 typedef _SessionGenerateContentStreamNative =
     Int Function(
       Pointer<Opaque>,
-      Pointer<_LiteRtLmInputData>,
+      Pointer<Pointer<Opaque>>,
       Size,
-      Pointer<NativeFunction<_StreamCallbackNative>>,
+      Pointer<NativeFunction<_StreamCallbackPointerNative>>,
       Pointer<Opaque>,
     );
 typedef _ConversationSendMessageNative =
@@ -1137,17 +1198,22 @@ typedef _ConversationSendMessageNative =
       Pointer<Utf8>,
       Pointer<Opaque>,
     );
-typedef _StreamCallbackNative =
+typedef _StreamCallbackPointerNative = Void Function();
+typedef _AppleStreamCallbackNative =
+    Void Function(Pointer<Opaque>, Pointer<Opaque>);
+typedef _LegacyStreamCallbackNative =
     Void Function(Pointer<Opaque>, Pointer<Utf8>, Bool, Pointer<Utf8>);
 typedef _DartStreamCallbackNative =
     Void Function(Pointer<Utf8>, Bool, Pointer<Utf8>);
+typedef _StreamChunkGetStringNative = Pointer<Utf8> Function(Pointer<Opaque>);
+typedef _StreamChunkIsFinalNative = Bool Function(Pointer<Opaque>);
 typedef _ConversationSendMessageStreamNative =
     Int Function(
       Pointer<Opaque>,
       Pointer<Utf8>,
       Pointer<Utf8>,
       Pointer<Opaque>,
-      Pointer<NativeFunction<_StreamCallbackNative>>,
+      Pointer<NativeFunction<_StreamCallbackPointerNative>>,
       Pointer<Opaque>,
     );
 typedef _ConversationRenderMessageToStringNative =
@@ -1156,33 +1222,6 @@ typedef _BenchmarkInfoGetValueNative = Double Function(Pointer<Opaque>);
 typedef _BenchmarkInfoGetCountNative = Int Function(Pointer<Opaque>);
 typedef _BenchmarkInfoGetValueAtNative = Double Function(Pointer<Opaque>, Int);
 typedef _BenchmarkInfoGetCountAtNative = Int Function(Pointer<Opaque>, Int);
-
-final class _LiteRtLmInputData extends Struct {
-  @Int32()
-  external int type;
-
-  external Pointer<Void> data;
-
-  @Size()
-  external int size;
-}
-
-final class _LiteRtLmSamplerParams extends Struct {
-  @Int32()
-  external int type;
-
-  @Int32()
-  external int topK;
-
-  @Float()
-  external double topP;
-
-  @Float()
-  external double temperature;
-
-  @Int32()
-  external int seed;
-}
 
 @Native<_EngineSettingsCreateNative>(
   symbol: 'litert_lm_engine_settings_create',
@@ -1329,13 +1368,52 @@ external Pointer<Opaque> _engineCreateSession(
 )
 external Pointer<Opaque> _sessionConfigCreate();
 
+@Native<Pointer<Opaque> Function(Int)>(
+  symbol: 'litert_lm_sampler_params_create',
+  assetId: _codeAssetName,
+)
+external Pointer<Opaque> _samplerParamsCreate(int type);
+
+@Native<Void Function(Pointer<Opaque>)>(
+  symbol: 'litert_lm_sampler_params_delete',
+  assetId: _codeAssetName,
+)
+external void _samplerParamsDelete(Pointer<Opaque> params);
+
+@Native<_SamplerParamsSetIntNative>(
+  symbol: 'litert_lm_sampler_params_set_top_k',
+  assetId: _codeAssetName,
+)
+external void _samplerParamsSetTopK(Pointer<Opaque> params, int topK);
+
+@Native<_SamplerParamsSetFloatNative>(
+  symbol: 'litert_lm_sampler_params_set_top_p',
+  assetId: _codeAssetName,
+)
+external void _samplerParamsSetTopP(Pointer<Opaque> params, double topP);
+
+@Native<_SamplerParamsSetFloatNative>(
+  symbol: 'litert_lm_sampler_params_set_temperature',
+  assetId: _codeAssetName,
+)
+external void _samplerParamsSetTemperature(
+  Pointer<Opaque> params,
+  double temperature,
+);
+
+@Native<_SamplerParamsSetIntNative>(
+  symbol: 'litert_lm_sampler_params_set_seed',
+  assetId: _codeAssetName,
+)
+external void _samplerParamsSetSeed(Pointer<Opaque> params, int seed);
+
 @Native<_SessionConfigSetSamplerParamsNative>(
   symbol: 'litert_lm_session_config_set_sampler_params',
   assetId: _codeAssetName,
 )
 external void _sessionConfigSetSamplerParams(
   Pointer<Opaque> config,
-  Pointer<_LiteRtLmSamplerParams> samplerParams,
+  Pointer<Opaque> samplerParams,
 );
 
 @Native<_SessionConfigSetIntNative>(
@@ -1498,13 +1576,29 @@ external void _sessionDelete(Pointer<Opaque> session);
 )
 external void _sessionCancelProcess(Pointer<Opaque> session);
 
+@Native<_InputDataCreateNative>(
+  symbol: 'litert_lm_input_data_create',
+  assetId: _codeAssetName,
+)
+external Pointer<Opaque> _inputDataCreate(
+  int type,
+  Pointer<Void> data,
+  int size,
+);
+
+@Native<Void Function(Pointer<Opaque>)>(
+  symbol: 'litert_lm_input_data_delete',
+  assetId: _codeAssetName,
+)
+external void _inputDataDelete(Pointer<Opaque> inputData);
+
 @Native<_SessionRunPrefillNative>(
   symbol: 'litert_lm_session_run_prefill',
   assetId: _codeAssetName,
 )
 external int _sessionRunPrefill(
   Pointer<Opaque> session,
-  Pointer<_LiteRtLmInputData> inputs,
+  Pointer<Pointer<Opaque>> inputs,
   int numInputs,
 );
 
@@ -1520,7 +1614,7 @@ external Pointer<Opaque> _sessionRunDecode(Pointer<Opaque> session);
 )
 external Pointer<Opaque> _sessionGenerateContent(
   Pointer<Opaque> session,
-  Pointer<_LiteRtLmInputData> inputs,
+  Pointer<Pointer<Opaque>> inputs,
   int numInputs,
 );
 
@@ -1530,9 +1624,9 @@ external Pointer<Opaque> _sessionGenerateContent(
 )
 external int _sessionGenerateContentStream(
   Pointer<Opaque> session,
-  Pointer<_LiteRtLmInputData> inputs,
+  Pointer<Pointer<Opaque>> inputs,
   int numInputs,
-  Pointer<NativeFunction<_StreamCallbackNative>> callback,
+  Pointer<NativeFunction<_StreamCallbackPointerNative>> callback,
   Pointer<Opaque> callbackData,
 );
 
@@ -1577,9 +1671,108 @@ external int _conversationSendMessageStream(
   Pointer<Utf8> messageJson,
   Pointer<Utf8> extraContext,
   Pointer<Opaque> optionalArgs,
-  Pointer<NativeFunction<_StreamCallbackNative>> callback,
+  Pointer<NativeFunction<_StreamCallbackPointerNative>> callback,
   Pointer<Opaque> callbackData,
 );
+
+_StreamCallbackRegistration _createStreamCallbackRegistration(
+  NativeCallable<_DartStreamCallbackNative> callback,
+) {
+  if (Platform.isWindows || Platform.isLinux) {
+    final context = _legacyStreamCallbackContextCreate(callback.nativeFunction);
+    if (context == nullptr) {
+      callback.close();
+      throw const LiteRtLmException(
+        'Could not create LiteRT-LM stream callback context.',
+      );
+    }
+    return _StreamCallbackRegistration(
+      function: Native.addressOf<NativeFunction<_LegacyStreamCallbackNative>>(
+        _legacyStreamCallbackBridge,
+      ).cast(),
+      data: context,
+      context: context,
+    );
+  }
+
+  final context = _streamCallbackContextCreate(
+    callback.nativeFunction,
+    Native.addressOf<NativeFunction<_StreamChunkGetStringNative>>(
+      _streamChunkGetText,
+    ),
+    Native.addressOf<NativeFunction<_StreamChunkIsFinalNative>>(
+      _streamChunkIsFinal,
+    ),
+    Native.addressOf<NativeFunction<_StreamChunkGetStringNative>>(
+      _streamChunkGetError,
+    ),
+  );
+  if (context == nullptr) {
+    callback.close();
+    throw const LiteRtLmException(
+      'Could not create LiteRT-LM stream callback context.',
+    );
+  }
+  return _StreamCallbackRegistration(
+    function: Native.addressOf<NativeFunction<_AppleStreamCallbackNative>>(
+      _appleStreamCallbackBridge,
+    ).cast(),
+    data: context,
+    context: context,
+  );
+}
+
+@Native<Pointer<Utf8> Function(Pointer<Opaque>)>(
+  symbol: 'litert_lm_stream_chunk_get_text',
+  assetId: _codeAssetName,
+)
+external Pointer<Utf8> _streamChunkGetText(Pointer<Opaque> chunk);
+
+@Native<Bool Function(Pointer<Opaque>)>(
+  symbol: 'litert_lm_stream_chunk_is_final',
+  assetId: _codeAssetName,
+)
+external bool _streamChunkIsFinal(Pointer<Opaque> chunk);
+
+@Native<Pointer<Utf8> Function(Pointer<Opaque>)>(
+  symbol: 'litert_lm_stream_chunk_get_error',
+  assetId: _codeAssetName,
+)
+external Pointer<Utf8> _streamChunkGetError(Pointer<Opaque> chunk);
+
+@Native<
+  Pointer<Opaque> Function(
+    Pointer<NativeFunction<_DartStreamCallbackNative>>,
+    Pointer<NativeFunction<_StreamChunkGetStringNative>>,
+    Pointer<NativeFunction<_StreamChunkIsFinalNative>>,
+    Pointer<NativeFunction<_StreamChunkGetStringNative>>,
+  )
+>(
+  symbol: 'litertlm_stream_callback_context_create',
+  assetId: _nativeFfiSupportAssetName,
+)
+external Pointer<Opaque> _streamCallbackContextCreate(
+  Pointer<NativeFunction<_DartStreamCallbackNative>> callback,
+  Pointer<NativeFunction<_StreamChunkGetStringNative>> getText,
+  Pointer<NativeFunction<_StreamChunkIsFinalNative>> isFinal,
+  Pointer<NativeFunction<_StreamChunkGetStringNative>> getError,
+);
+
+@Native<
+  Pointer<Opaque> Function(Pointer<NativeFunction<_DartStreamCallbackNative>>)
+>(
+  symbol: 'litertlm_stream_callback_context_create_legacy',
+  assetId: _nativeFfiSupportAssetName,
+)
+external Pointer<Opaque> _legacyStreamCallbackContextCreate(
+  Pointer<NativeFunction<_DartStreamCallbackNative>> callback,
+);
+
+@Native<Void Function(Pointer<Opaque>)>(
+  symbol: 'litertlm_stream_callback_context_delete',
+  assetId: _nativeFfiSupportAssetName,
+)
+external void _streamCallbackContextDelete(Pointer<Opaque> context);
 
 @Native<_ConversationRenderMessageToStringNative>(
   symbol: 'litert_lm_conversation_render_message_to_string',
@@ -1590,11 +1783,20 @@ external Pointer<Utf8> _conversationRenderMessageToString(
   Pointer<Utf8> messageJson,
 );
 
-@Native<_StreamCallbackNative>(
+@Native<_AppleStreamCallbackNative>(
   symbol: 'litertlm_stream_callback_bridge',
   assetId: _nativeFfiSupportAssetName,
 )
-external void _streamCallbackBridge(
+external void _appleStreamCallbackBridge(
+  Pointer<Opaque> callbackData,
+  Pointer<Opaque> chunk,
+);
+
+@Native<_LegacyStreamCallbackNative>(
+  symbol: 'litertlm_stream_callback_bridge_legacy',
+  assetId: _nativeFfiSupportAssetName,
+)
+external void _legacyStreamCallbackBridge(
   Pointer<Opaque> callbackData,
   Pointer<Utf8> chunk,
   bool isFinal,

@@ -26,5 +26,5 @@ kotlin {
 }
 
 dependencies {
-    implementation("com.google.ai.edge.litertlm:litertlm-android:0.13.1")
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.14.0")
 }

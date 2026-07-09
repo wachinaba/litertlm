@@ -7,7 +7,7 @@ API Reference: https://pub.dev/documentation/litertlm/latest/
 
 Live Example Flutter Project: https://github.com/yangyuan/agentic
 
-Powered by LiteRT-LM v0.13.1.
+Powered by LiteRT-LM v0.14.0.
 
 ## Overview
 This package is a lightweight bridge to the official LiteRT-LM runtimes. It uses each platform's optimized distribution, providing the same hardware acceleration and capabilities, including the Swift package on iOS and macOS, the Maven artifact on Android, and CLI distribution on Windows.
@@ -237,3 +237,7 @@ LiteRT-LM depends heavily on device hardware, runtime support, and model capabil
 
 ### UnsupportedError
 LiteRT-LM is under fast development, and not all features are immediately available on every platform. This package throws `UnsupportedError` when the selected platform runtime does not support the requested feature.
+
+## Note for LiteRT-LM v0.14.0
+The platform-specific native artifacts published for LiteRT-LM v0.14.0 were built from [different upstream commits](https://github.com/google-ai-edge/LiteRT-LM/issues/2780).
+This package handles the resulting differences internally.

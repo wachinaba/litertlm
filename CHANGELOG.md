@@ -1,3 +1,8 @@
+## 0.0.9
+
+* Updated native runtime dependencies to LiteRT-LM v0.14.0.
+* Added platform-specific FFI compatibility for the v0.14.0 streaming callback ABI differences.
+
 ## 0.0.8
 
 * Improved WASM compatibility.
