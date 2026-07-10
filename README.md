@@ -272,5 +272,5 @@ LiteRT-LM depends heavily on device hardware, runtime support, and model capabil
 LiteRT-LM is under fast development, and not all features are immediately available on every platform. This package throws `UnsupportedError` when the selected platform runtime does not support the requested feature.
 
 ## Note for LiteRT-LM v0.14.0
-The platform-specific native artifacts published for LiteRT-LM v0.14.0 were built from [different upstream commits](https://github.com/google-ai-edge/LiteRT-LM/issues/2780).
-This package handles the resulting differences internally.
+The LiteRT-LM v0.14.0 release [had multiple release-integrity issues](https://github.com/google-ai-edge/LiteRT-LM/issues/2803). This may affect dependency resolution, build reproducibility, and runtime consistency.
+This package is updated to handle the resulting differences internally.

@@ -1244,7 +1244,7 @@ typedef _ConversationSendMessageNative =
       Pointer<Opaque>,
     );
 typedef _StreamCallbackPointerNative = Void Function();
-typedef _AppleStreamCallbackNative =
+typedef _StreamChunkCallbackNative =
     Void Function(Pointer<Opaque>, Pointer<Opaque>);
 typedef _LegacyStreamCallbackNative =
     Void Function(Pointer<Opaque>, Pointer<Utf8>, Bool, Pointer<Utf8>);
@@ -1762,8 +1762,13 @@ external int _conversationSendMessageStream(
 _StreamCallbackRegistration _createStreamCallbackRegistration(
   NativeCallable<_DartStreamCallbackNative> callback,
 ) {
-  if (Platform.isWindows || Platform.isLinux) {
-    final context = _legacyStreamCallbackContextCreate(callback.nativeFunction);
+  if (Platform.isWindows ||
+      Platform.isLinux ||
+      Platform.isMacOS ||
+      Platform.isIOS) {
+    final context = _legacyStreamCallbackContextCreate(
+      callback.nativeFunction,
+    );
     if (context == nullptr) {
       callback.close();
       throw const LiteRtLmException(
@@ -1779,6 +1784,8 @@ _StreamCallbackRegistration _createStreamCallbackRegistration(
     );
   }
 
+  // TODO: Use the newer stream-chunk callback path when LiteRT-LM migrates its
+  // platform artifacts to that ABI.
   final context = _streamCallbackContextCreate(
     callback.nativeFunction,
     Native.addressOf<NativeFunction<_StreamChunkGetStringNative>>(
@@ -1798,8 +1805,8 @@ _StreamCallbackRegistration _createStreamCallbackRegistration(
     );
   }
   return _StreamCallbackRegistration(
-    function: Native.addressOf<NativeFunction<_AppleStreamCallbackNative>>(
-      _appleStreamCallbackBridge,
+    function: Native.addressOf<NativeFunction<_StreamChunkCallbackNative>>(
+      _streamChunkCallbackBridge,
     ).cast(),
     data: context,
     context: context,
@@ -1875,11 +1882,11 @@ external Pointer<Utf8> _conversationRenderPrefaceToString(
   Pointer<Opaque> conversation,
 );
 
-@Native<_AppleStreamCallbackNative>(
+@Native<_StreamChunkCallbackNative>(
   symbol: 'litertlm_stream_callback_bridge',
   assetId: _nativeFfiSupportAssetName,
 )
-external void _appleStreamCallbackBridge(
+external void _streamChunkCallbackBridge(
   Pointer<Opaque> callbackData,
   Pointer<Opaque> chunk,
 );

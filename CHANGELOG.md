@@ -1,3 +1,8 @@
+## 0.0.11
+
+* Updated the iOS and macOS dependencies after upstream replaced the LiteRT-LM v0.14.0 binary artifacts in place.
+* Aligned iOS and macOS streaming callbacks with the replacement artifacts.
+
 ## 0.0.10
 
 * Added Web support for conversation token counts and benchmark information.
