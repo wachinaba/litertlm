@@ -42,17 +42,6 @@ FFI_PLUGIN_EXPORT void *litertlm_stream_callback_context_create(
   return context;
 }
 
-FFI_PLUGIN_EXPORT void *litertlm_stream_callback_context_create_legacy(
-    LiteRtLmDartStreamCallback callback) {
-  LiteRtLmStreamCallbackContext *context =
-      (LiteRtLmStreamCallbackContext *)calloc(1, sizeof(*context));
-  if (context == NULL) {
-    return NULL;
-  }
-  context->callback = callback;
-  return context;
-}
-
 FFI_PLUGIN_EXPORT void litertlm_stream_callback_context_delete(
     void *callback_data) {
   free(callback_data);
@@ -78,36 +67,6 @@ FFI_PLUGIN_EXPORT void litertlm_stream_callback_bridge(
     chunk_copy = (char *)malloc(chunk_length);
     if (chunk_copy != NULL) {
       memcpy(chunk_copy, text, chunk_length);
-    }
-  }
-
-  char *error_copy = NULL;
-  if (error_msg != NULL) {
-    size_t error_length = strlen(error_msg) + 1;
-    error_copy = (char *)malloc(error_length);
-    if (error_copy != NULL) {
-      memcpy(error_copy, error_msg, error_length);
-    }
-  }
-
-  context->callback(chunk_copy, is_final, error_copy);
-}
-
-FFI_PLUGIN_EXPORT void litertlm_stream_callback_bridge_legacy(
-    void *callback_data, const char *chunk, bool is_final,
-    const char *error_msg) {
-  LiteRtLmStreamCallbackContext *context =
-      (LiteRtLmStreamCallbackContext *)callback_data;
-  if (context == NULL || context->callback == NULL) {
-    return;
-  }
-
-  char *chunk_copy = NULL;
-  if (chunk != NULL) {
-    size_t chunk_length = strlen(chunk) + 1;
-    chunk_copy = (char *)malloc(chunk_length);
-    if (chunk_copy != NULL) {
-      memcpy(chunk_copy, chunk, chunk_length);
     }
   }
 

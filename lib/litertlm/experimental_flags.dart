@@ -79,16 +79,17 @@ final class ExperimentalFlags {
 
   /// Whether channel content is filtered from the KV cache.
   ///
-  /// If true, channel content (e.g. reasoning) will be filtered from the KV
-  /// cache.
+  /// If null, uses the model or runtime default. If true, channel content
+  /// (e.g. reasoning) will be filtered from the KV cache. If false, channel
+  /// content remains in the KV cache.
   ///
   /// Note: This flag is read only when a new [Conversation] is created.
   /// Changing this value will not affect any existing [Conversation]
   /// instances.
-  static bool get filterChannelContentFromKvCache =>
+  static bool? get filterChannelContentFromKvCache =>
       LiteRtLmNativeRuntime.instance.filterChannelContentFromKvCache;
 
-  static set filterChannelContentFromKvCache(bool value) {
+  static set filterChannelContentFromKvCache(bool? value) {
     LiteRtLmNativeRuntime.instance.filterChannelContentFromKvCache = value;
   }
 

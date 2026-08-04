@@ -40,9 +40,9 @@ abstract interface class LiteRtLmNativeRuntime {
   set conversationToolCallStreamingChannelName(String value);
 
   /// Whether channel content is filtered from the KV cache.
-  bool get filterChannelContentFromKvCache;
+  bool? get filterChannelContentFromKvCache;
 
-  set filterChannelContentFromKvCache(bool value);
+  set filterChannelContentFromKvCache(bool? value);
 
   /// The visual token budget.
   int? get visualTokenBudget;

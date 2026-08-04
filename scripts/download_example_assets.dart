@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 const _partSizeBytes = 512 * 1024 * 1024;
-const _liteRtLmVersion = 'v0.14.0';
+const _liteRtLmVersion = 'v0.15.0';
 const _baseUrl =
     'https://raw.githubusercontent.com/google-ai-edge/LiteRT-LM/$_liteRtLmVersion';
 const _gemma4BaseUrl =
@@ -21,8 +21,8 @@ const _assets = [
     path: 'example/assets/models/gemma-4-E2B-it-web.litertlm',
   ),
   (
-    url: '$_baseUrl/runtime/components/preprocessor/testdata/apple.png',
-    path: 'example/assets/images/apple.png',
+    url: '$_baseUrl/runtime/testdata/colored_rect_163_586_615_957.jpg',
+    path: 'example/assets/images/colored_rect_163_586_615_957.jpg',
   ),
   (
     url: '$_baseUrl/runtime/testdata/have_a_wonderful_day.wav',

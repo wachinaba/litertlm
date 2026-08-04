@@ -12,7 +12,7 @@ import '../litertlm/session.dart';
 import 'runtime.dart';
 
 const _sdkModuleUrl =
-    'https://cdn.jsdelivr.net/npm/@litert-lm/core@0.14.0/+esm';
+    'https://cdn.jsdelivr.net/npm/@litert-lm/core@0.15.0/+esm';
 const _sdkLoadTimeout = Duration(seconds: 30);
 const _samplerTypeTopP = 2;
 const _unavailableInitTimeInSecond = 0.0;
@@ -39,7 +39,7 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
   String conversationToolCallStreamingChannelName = 'tool_call';
 
   @override
-  bool filterChannelContentFromKvCache = false;
+  bool? filterChannelContentFromKvCache;
 
   @override
   int? visualTokenBudget;
@@ -491,7 +491,7 @@ return Promise.race([
   JSObject _conversationConfigToJs(
     ConversationConfig config, {
     required bool enableConversationConstrainedDecoding,
-    required bool filterChannelContentFromKvCache,
+    required bool? filterChannelContentFromKvCache,
   }) {
     final dartSessionConfig = config.sessionConfig;
     final loraConfig = dartSessionConfig?.loraConfig;
@@ -532,8 +532,9 @@ return Promise.race([
     if (enableConversationConstrainedDecoding) {
       jsConfig['enableConstrainedDecoding'] = true;
     }
-    if (filterChannelContentFromKvCache) {
-      jsConfig['filterChannelContentFromKvCache'] = true;
+    if (filterChannelContentFromKvCache != null) {
+      jsConfig['filterChannelContentFromKvCache'] =
+          filterChannelContentFromKvCache;
     }
     return _parseJson(jsonEncode(jsConfig));
   }

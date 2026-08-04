@@ -75,13 +75,15 @@ void main() {
 
       ExperimentalFlags.enableSpeculativeDecoding = null;
       expect(ExperimentalFlags.enableSpeculativeDecoding, isNull);
+      ExperimentalFlags.filterChannelContentFromKvCache = null;
+      expect(ExperimentalFlags.filterChannelContentFromKvCache, isNull);
       ExperimentalFlags.visualTokenBudget = null;
       expect(ExperimentalFlags.visualTokenBudget, isNull);
     } finally {
       ExperimentalFlags.enableBenchmark = false;
       ExperimentalFlags.enableSpeculativeDecoding = null;
       ExperimentalFlags.enableConversationConstrainedDecoding = false;
-      ExperimentalFlags.filterChannelContentFromKvCache = false;
+      ExperimentalFlags.filterChannelContentFromKvCache = null;
       ExperimentalFlags.visualTokenBudget = null;
     }
   });

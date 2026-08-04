@@ -39,7 +39,7 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
   String conversationToolCallStreamingChannelName = 'tool_call';
 
   @override
-  bool filterChannelContentFromKvCache = false;
+  bool? filterChannelContentFromKvCache;
 
   @override
   int? visualTokenBudget;
@@ -881,10 +881,12 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
       _conversationConfigSetEnableConstrainedDecoding(conversationConfig, true);
     }
 
-    if (filterChannelContentFromKvCache) {
+    final filterChannelContentFromKvCache =
+        this.filterChannelContentFromKvCache;
+    if (filterChannelContentFromKvCache != null) {
       _conversationConfigSetFilterChannelContentFromKvCache(
         conversationConfig,
-        true,
+        filterChannelContentFromKvCache,
       );
     }
 
@@ -1246,8 +1248,6 @@ typedef _ConversationSendMessageNative =
 typedef _StreamCallbackPointerNative = Void Function();
 typedef _StreamChunkCallbackNative =
     Void Function(Pointer<Opaque>, Pointer<Opaque>);
-typedef _LegacyStreamCallbackNative =
-    Void Function(Pointer<Opaque>, Pointer<Utf8>, Bool, Pointer<Utf8>);
 typedef _DartStreamCallbackNative =
     Void Function(Pointer<Utf8>, Bool, Pointer<Utf8>);
 typedef _StreamChunkGetStringNative = Pointer<Utf8> Function(Pointer<Opaque>);
@@ -1762,30 +1762,6 @@ external int _conversationSendMessageStream(
 _StreamCallbackRegistration _createStreamCallbackRegistration(
   NativeCallable<_DartStreamCallbackNative> callback,
 ) {
-  if (Platform.isWindows ||
-      Platform.isLinux ||
-      Platform.isMacOS ||
-      Platform.isIOS) {
-    final context = _legacyStreamCallbackContextCreate(
-      callback.nativeFunction,
-    );
-    if (context == nullptr) {
-      callback.close();
-      throw const LiteRtLmException(
-        'Could not create LiteRT-LM stream callback context.',
-      );
-    }
-    return _StreamCallbackRegistration(
-      function: Native.addressOf<NativeFunction<_LegacyStreamCallbackNative>>(
-        _legacyStreamCallbackBridge,
-      ).cast(),
-      data: context,
-      context: context,
-    );
-  }
-
-  // TODO: Use the newer stream-chunk callback path when LiteRT-LM migrates its
-  // platform artifacts to that ABI.
   final context = _streamCallbackContextCreate(
     callback.nativeFunction,
     Native.addressOf<NativeFunction<_StreamChunkGetStringNative>>(
@@ -1849,16 +1825,6 @@ external Pointer<Opaque> _streamCallbackContextCreate(
   Pointer<NativeFunction<_StreamChunkGetStringNative>> getError,
 );
 
-@Native<
-  Pointer<Opaque> Function(Pointer<NativeFunction<_DartStreamCallbackNative>>)
->(
-  symbol: 'litertlm_stream_callback_context_create_legacy',
-  assetId: _nativeFfiSupportAssetName,
-)
-external Pointer<Opaque> _legacyStreamCallbackContextCreate(
-  Pointer<NativeFunction<_DartStreamCallbackNative>> callback,
-);
-
 @Native<Void Function(Pointer<Opaque>)>(
   symbol: 'litertlm_stream_callback_context_delete',
   assetId: _nativeFfiSupportAssetName,
@@ -1889,17 +1855,6 @@ external Pointer<Utf8> _conversationRenderPrefaceToString(
 external void _streamChunkCallbackBridge(
   Pointer<Opaque> callbackData,
   Pointer<Opaque> chunk,
-);
-
-@Native<_LegacyStreamCallbackNative>(
-  symbol: 'litertlm_stream_callback_bridge_legacy',
-  assetId: _nativeFfiSupportAssetName,
-)
-external void _legacyStreamCallbackBridge(
-  Pointer<Opaque> callbackData,
-  Pointer<Utf8> chunk,
-  bool isFinal,
-  Pointer<Utf8> errorMessage,
 );
 
 @Native<Void Function(Pointer<Void>)>(

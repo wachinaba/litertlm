@@ -78,11 +78,11 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
   );
   late final _sendMessage = _class.staticMethodId(
     'sendMessage',
-    '(Lcom/google/ai/edge/litertlm/Conversation;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;',
+    '(Lcom/google/ai/edge/litertlm/Conversation;Ljava/lang/String;Ljava/lang/String;I)Ljava/lang/String;',
   );
   late final _sendMessageStream = _class.staticMethodId(
     'sendMessageStream',
-    '(Lcom/google/ai/edge/litertlm/Conversation;Ljava/lang/String;Ljava/lang/String;Lcom/google/ai/edge/litertlm/MessageCallback;)V',
+    '(Lcom/google/ai/edge/litertlm/Conversation;Ljava/lang/String;Ljava/lang/String;ILcom/google/ai/edge/litertlm/MessageCallback;)V',
   );
   late final _runSessionPrefill = _class.staticMethodId(
     'runSessionPrefill',
@@ -176,11 +176,11 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
   );
   late final _getFilterChannelContentFromKvCache = _class.staticMethodId(
     'getFilterChannelContentFromKvCache',
-    '()I',
+    '()Ljava/lang/Integer;',
   );
   late final _setFilterChannelContentFromKvCache = _class.staticMethodId(
     'setFilterChannelContentFromKvCache',
-    '(I)V',
+    '(Ljava/lang/Integer;)V',
   );
   late final _getVisualTokenBudget = _class.staticMethodId(
     'getVisualTokenBudget',
@@ -248,15 +248,36 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
   }
 
   @override
-  bool get filterChannelContentFromKvCache {
-    return _getFilterChannelContentFromKvCache.call(_class, jint.type, []) != 0;
+  bool? get filterChannelContentFromKvCache {
+    final value = _getFilterChannelContentFromKvCache.call(
+      _class,
+      JObject.type,
+      [],
+    );
+    if (value.reference.pointer == jni_internal.nullptr) {
+      return null;
+    }
+    try {
+      return _integerIntValue.call(value, jint.type, []) != 0;
+    } finally {
+      value.release();
+    }
   }
 
   @override
-  set filterChannelContentFromKvCache(bool value) {
-    _setFilterChannelContentFromKvCache.call(_class, jvoid.type, [
+  set filterChannelContentFromKvCache(bool? value) {
+    if (value == null) {
+      _setFilterChannelContentFromKvCache.call(_class, jvoid.type, [null]);
+      return;
+    }
+    final integer = _integerValueOf.call(_integerClass, JObject.type, [
       JValueInt(value ? 1 : 0),
     ]);
+    try {
+      _setFilterChannelContentFromKvCache.call(_class, jvoid.type, [integer]);
+    } finally {
+      integer.release();
+    }
   }
 
   @override
@@ -407,11 +428,6 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
       );
     }
     final sessionConfig = config.sessionConfig;
-    if (sessionConfig?.maxOutputTokens != null) {
-      throw UnsupportedError(
-        'SessionConfig.maxOutputTokens is not supported by the LiteRT-LM Android SDK.',
-      );
-    }
     if (sessionConfig?.applyPromptTemplateInSession != null) {
       throw UnsupportedError(
         'SessionConfig.applyPromptTemplateInSession is not supported by the LiteRT-LM Android SDK.',
@@ -467,11 +483,6 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
     String? extraContextJson,
     int? maxOutputTokens,
   }) async {
-    if (maxOutputTokens != null) {
-      throw UnsupportedError(
-        'Per-send maxOutputTokens is not supported by the LiteRT-LM Android SDK.',
-      );
-    }
     final jniConversation = conversation as _JniConversationHandle;
     final message = messageJson.toJString();
     final extraContext = (extraContextJson ?? '').toJString();
@@ -481,6 +492,7 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
             jniConversation.conversation,
             message,
             extraContext,
+            JValueInt(maxOutputTokens ?? _unsetInt),
           ])
           .toDartString(releaseOriginal: true);
       return Message.fromJsonString(response);
@@ -500,11 +512,6 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
     required void Function() onDone,
     required void Function(Object error, StackTrace stackTrace) onError,
   }) {
-    if (maxOutputTokens != null) {
-      throw UnsupportedError(
-        'Per-send maxOutputTokens is not supported by the LiteRT-LM Android SDK.',
-      );
-    }
     final jniConversation = conversation as _JniConversationHandle;
     final done = Completer<void>();
     JObject? streamCallback;
@@ -568,6 +575,7 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
         jniConversation.conversation,
         message,
         extraContext,
+        JValueInt(maxOutputTokens ?? _unsetInt),
         streamCallback,
       ]);
     } catch (error, stackTrace) {

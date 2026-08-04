@@ -178,7 +178,7 @@ void main() {
         Message.user('Hello'),
         maxOutputTokens: 1,
       );
-      if (kIsWeb || defaultTargetPlatform == TargetPlatform.android) {
+      if (kIsWeb) {
         await expectLater(response, throwsUnsupportedError);
       } else {
         final text = (await response).text;
@@ -210,7 +210,7 @@ void main() {
         Message.user('Hello'),
         maxOutputTokens: 1,
       );
-      if (kIsWeb || defaultTargetPlatform == TargetPlatform.android) {
+      if (kIsWeb) {
         await expectLater(stream, emitsError(isA<UnsupportedError>()));
       } else {
         final output = StringBuffer();
@@ -357,7 +357,9 @@ void main() {
     final modelPath = await resolveModelAssetPath(
       'assets/models/gemma-4-E2B-it.litertlm',
     );
-    final imagePath = await resolveModelAssetPath('assets/images/apple.png');
+    final imagePath = await resolveModelAssetPath(
+      'assets/images/colored_rect_163_586_615_957.jpg',
+    );
     final engine = Engine(
       engineConfig: EngineConfig(
         modelPath: modelPath,

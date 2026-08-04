@@ -1,3 +1,10 @@
+## 0.0.12
+
+* Updated LiteRT-LM runtime dependencies across supported platforms to v0.15.0.
+* Aligned FFI streaming callbacks with the v0.15.0 opaque stream-chunk ABI.
+* Changed `ExperimentalFlags.filterChannelContentFromKvCache` to `bool?`; `null` uses the upstream runtime or model default.
+* Added Android support for conversation-level and per-send `maxOutputTokens`.
+
 ## 0.0.11
 
 * Updated the iOS and macOS dependencies after upstream replaced the LiteRT-LM v0.14.0 binary artifacts in place.

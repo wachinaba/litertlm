@@ -7,7 +7,7 @@ API Reference: https://pub.dev/documentation/litertlm/latest/
 
 Live Example Flutter Project: https://github.com/yangyuan/agentic
 
-Powered by LiteRT-LM v0.14.0.
+Powered by LiteRT-LM v0.15.0.
 
 ## Overview
 This package is a lightweight bridge to the official LiteRT-LM runtimes. It uses each platform's optimized distribution, providing the same hardware acceleration and capabilities, including the Swift package on iOS and macOS, the Maven artifact on Android, and CLI distribution on Windows.
@@ -260,7 +260,7 @@ Supported `ExperimentalFlags`:
 * `enableConversationToolCallStreaming`: Enables tool-call token streaming for subsequently created conversations.
 * `enableSpeculativeDecoding`: Controls speculative decoding for engines created after the flag is set. `null` uses the model default, `true` enables it, and `false` disables it.
 * `conversationToolCallStreamingChannelName`: Sets the channel name for streamed tool-call tokens.
-* `filterChannelContentFromKvCache`: Whether to filter channel content from the KV cache.
+* `filterChannelContentFromKvCache`: Controls whether channel content is filtered from the KV cache. `null` uses the runtime or model default.
 * `visualTokenBudget`: The visual token budget.
 
 ## Troubleshooting
@@ -270,7 +270,3 @@ LiteRT-LM depends heavily on device hardware, runtime support, and model capabil
 
 ### UnsupportedError
 LiteRT-LM is under fast development, and not all features are immediately available on every platform. This package throws `UnsupportedError` when the selected platform runtime does not support the requested feature.
-
-## Note for LiteRT-LM v0.14.0
-The LiteRT-LM v0.14.0 release [had multiple release-integrity issues](https://github.com/google-ai-edge/LiteRT-LM/issues/2803). This may affect dependency resolution, build reproducibility, and runtime consistency.
-This package is updated to handle the resulting differences internally.

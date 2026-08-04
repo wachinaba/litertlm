@@ -103,8 +103,17 @@ object LiteRtLmJniBridge {
     }
 
     @JvmStatic
-    fun sendMessage(conversation: Conversation, messageJson: String, extraContextJson: String): String {
-        val response = conversation.sendMessage(parseMessage(JSONObject(messageJson)), parseMap(extraContextJson))
+    fun sendMessage(
+        conversation: Conversation,
+        messageJson: String,
+        extraContextJson: String,
+        maxOutputTokens: Int,
+    ): String {
+        val response = conversation.sendMessage(
+            message = parseMessage(JSONObject(messageJson)),
+            extraContext = parseMap(extraContextJson),
+            maxOutputToken = maxOutputTokens.takeUnless { it == Int.MIN_VALUE },
+        )
         return messageToJson(response)
     }
 
@@ -113,9 +122,15 @@ object LiteRtLmJniBridge {
         conversation: Conversation,
         messageJson: String,
         extraContextJson: String,
+        maxOutputTokens: Int,
         callback: MessageCallback,
     ) {
-        conversation.sendMessageAsync(parseMessage(JSONObject(messageJson)), callback, parseMap(extraContextJson))
+        conversation.sendMessageAsync(
+            message = parseMessage(JSONObject(messageJson)),
+            callback = callback,
+            extraContext = parseMap(extraContextJson),
+            maxOutputToken = maxOutputTokens.takeUnless { it == Int.MIN_VALUE },
+        )
     }
 
     @JvmStatic
@@ -272,14 +287,14 @@ object LiteRtLmJniBridge {
 
     @JvmStatic
     @OptIn(ExperimentalApi::class)
-    fun getFilterChannelContentFromKvCache(): Int {
-        return if (ExperimentalFlags.filterChannelContentFromKvCache) 1 else 0
+    fun getFilterChannelContentFromKvCache(): Int? {
+        return ExperimentalFlags.filterChannelContentFromKvCache?.let { if (it) 1 else 0 }
     }
 
     @JvmStatic
     @OptIn(ExperimentalApi::class)
-    fun setFilterChannelContentFromKvCache(value: Int) {
-        ExperimentalFlags.filterChannelContentFromKvCache = value != 0
+    fun setFilterChannelContentFromKvCache(value: Int?) {
+        ExperimentalFlags.filterChannelContentFromKvCache = value?.let { it != 0 }
     }
 
     @JvmStatic
@@ -324,6 +339,9 @@ object LiteRtLmJniBridge {
             loraConfig = parseLoraConfig(sessionConfig?.optJSONObject("loraConfig")),
             automaticToolCalling = false,
             channels = parseChannels(json.optJSONArray("channels")),
+            maxOutputToken = sessionConfig
+                ?.optInt("maxOutputTokens", Int.MIN_VALUE)
+                ?.takeUnless { it == Int.MIN_VALUE },
         )
     }
 
