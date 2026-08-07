@@ -1,3 +1,7 @@
+## 0.0.13
+
+* Added `LiteRtLmNativeException` and `LiteRtLmOutOfMemoryException` to report native failures during engine, conversation, and session creation.
+
 ## 0.0.12
 
 * Updated LiteRT-LM runtime dependencies across supported platforms to v0.15.0.

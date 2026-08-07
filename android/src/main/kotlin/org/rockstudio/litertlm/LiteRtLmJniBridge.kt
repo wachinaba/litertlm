@@ -29,6 +29,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object LiteRtLmJniBridge {
+    init {
+        LiteRtLmJniNativeGuard.install()
+    }
+
     @JvmStatic
     fun createEngine(
         modelPath: String,
@@ -231,7 +235,9 @@ object LiteRtLmJniBridge {
 
     @JvmStatic
     fun deleteEngine(engine: Engine) {
-        engine.close()
+        if (engine.isInitialized()) {
+            engine.close()
+        }
     }
 
     @JvmStatic

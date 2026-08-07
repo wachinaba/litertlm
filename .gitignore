@@ -8,3 +8,5 @@
 .dart_tool/
 .flutter-plugins-dependencies
 /build/
+ios/*/.swiftpm/xcode/xcuserdata/
+android/.cxx/

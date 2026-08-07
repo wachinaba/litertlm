@@ -34,6 +34,16 @@ String _encodeBackendJson(Backend backend) {
 class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
   final _class = JClass.forName('org/rockstudio/litertlm/LiteRtLmJniBridge');
 
+  late final _nativeExceptionClass = JClass.forName(
+    'org/rockstudio/litertlm/LiteRtLmJniNativeException',
+  );
+  late final _nativeExceptionGetCode = _nativeExceptionClass.instanceMethodId(
+    'getCode',
+    '()I',
+  );
+  late final _nativeExceptionGetOperation = _nativeExceptionClass
+      .instanceMethodId('getOperation', '()I');
+
   @override
   bool enableConversationToolCallStreaming = false;
 
@@ -394,15 +404,18 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
     final backend = _encodeBackendJson(config.backend).toJString();
     final cacheDir = (config.cacheDir ?? '').toJString();
     try {
-      final benchmarkInfoJson = _benchmark
-          .call(_class, JString.type, [
-            modelPath,
-            backend,
-            JValueInt(prefillTokens),
-            JValueInt(decodeTokens),
-            cacheDir,
-          ])
-          .toDartString(releaseOriginal: true);
+      final benchmarkInfoJson = _translateNativeException(
+        LiteRtLmOperation.engineInitialization,
+        () => _benchmark
+            .call(_class, JString.type, [
+              modelPath,
+              backend,
+              JValueInt(prefillTokens),
+              JValueInt(decodeTokens),
+              cacheDir,
+            ])
+            .toDartString(releaseOriginal: true),
+      );
       return BenchmarkInfo.fromJsonString(benchmarkInfoJson);
     } finally {
       modelPath.release();
@@ -414,7 +427,10 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
   @override
   Future<void> initializeEngine(EngineHandle engine) async {
     final jniEngine = engine as _JniEngineHandle;
-    _initializeEngine.call(_class, jvoid.type, [jniEngine.engine]);
+    _translateNativeException(
+      LiteRtLmOperation.engineInitialization,
+      () => _initializeEngine.call(_class, jvoid.type, [jniEngine.engine]),
+    );
   }
 
   @override
@@ -437,10 +453,13 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
     final configJson = jsonEncode(config.toJson()).toJString();
     try {
       return _JniConversationHandle(
-        _createConversation.call(_class, JObject.type, [
-          jniEngine.engine,
-          configJson,
-        ]),
+        _translateNativeException(
+          LiteRtLmOperation.conversationCreation,
+          () => _createConversation.call(_class, JObject.type, [
+            jniEngine.engine,
+            configJson,
+          ]),
+        ),
       );
     } finally {
       configJson.release();
@@ -466,10 +485,13 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
     final configJson = jsonEncode(config.toJson()).toJString();
     try {
       return _JniSessionHandle(
-        _createSession.call(_class, JObject.type, [
-          jniEngine.engine,
-          configJson,
-        ]),
+        _translateNativeException(
+          LiteRtLmOperation.sessionCreation,
+          () => _createSession.call(_class, JObject.type, [
+            jniEngine.engine,
+            configJson,
+          ]),
+        ),
       );
     } finally {
       configJson.release();
@@ -767,6 +789,48 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
   @override
   void setMinimumLogLevel(LogSeverity severity) {
     _setMinimumLogLevel.call(_class, jvoid.type, [JValueInt(severity.value)]);
+  }
+
+  T _translateNativeException<T>(
+    LiteRtLmOperation expectedOperation,
+    T Function() call,
+  ) {
+    try {
+      return call();
+    } on JThrowable catch (error) {
+      if (!error.isInstanceOf(_nativeExceptionClass)) {
+        rethrow;
+      }
+
+      late final int code;
+      late final int operationValue;
+      try {
+        code = _nativeExceptionGetCode.call(error, jint.type, []);
+        operationValue = _nativeExceptionGetOperation.call(
+          error,
+          jint.type,
+          [],
+        );
+      } finally {
+        error.release();
+      }
+
+      var operation = expectedOperation;
+      for (final candidate in LiteRtLmOperation.values) {
+        if (candidate.nativeValue == operationValue) {
+          operation = candidate;
+          break;
+        }
+      }
+      if (code == LiteRtLmNativeException.outOfMemoryCode) {
+        throw LiteRtLmOutOfMemoryException(operation);
+      }
+      throw LiteRtLmNativeException(
+        'Native exception code $code during ${operation.name}.',
+        operation,
+        code: code,
+      );
+    }
   }
 }
 

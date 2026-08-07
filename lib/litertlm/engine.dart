@@ -42,6 +42,8 @@ abstract interface class MessageCallback {
   void onError(Object error, StackTrace stackTrace);
 }
 
+enum _EngineState { created, initialized, failed, disposed }
+
 /// Manages the lifecycle of a LiteRT-LM engine.
 class Engine {
   /// Creates an engine with the given configuration.
@@ -51,57 +53,86 @@ class Engine {
   /// The configuration for the engine.
   final EngineConfig engineConfig;
   final EngineHandle _handle;
-  bool _isInitialized = false;
+  _EngineState _state = _EngineState.created;
 
   /// Whether the engine is initialized and ready for use.
-  bool get isInitialized => _isInitialized;
+  bool get isInitialized => _state == _EngineState.initialized;
 
   /// Initializes the native LiteRT-LM engine.
   Future<void> initialize() async {
-    if (_isInitialized) {
+    if (_state == _EngineState.initialized) {
       throw const LiteRtLmException('Engine is already initialized.');
     }
-    await LiteRtLmNativeRuntime.instance.initializeEngine(_handle);
-    _isInitialized = true;
+    if (_state == _EngineState.failed) {
+      throw const LiteRtLmException('Engine failed and must be disposed.');
+    }
+    if (_state == _EngineState.disposed) {
+      throw const LiteRtLmException('Engine is already disposed.');
+    }
+    try {
+      await LiteRtLmNativeRuntime.instance.initializeEngine(_handle);
+      _state = _EngineState.initialized;
+    } catch (_) {
+      _state = _EngineState.failed;
+      rethrow;
+    }
   }
 
   /// Creates a new conversation from the initialized engine.
   Future<Conversation> createConversation([
     ConversationConfig conversationConfig = const ConversationConfig(),
   ]) async {
-    if (!_isInitialized) {
-      throw const LiteRtLmException('Engine is not initialized.');
+    _ensureInitialized();
+    try {
+      final handle = await LiteRtLmNativeRuntime.instance.createConversation(
+        _handle,
+        conversationConfig,
+      );
+      return Conversation._(
+        handle,
+        ToolManager(tools: conversationConfig.tools),
+        automaticToolCalling: conversationConfig.automaticToolCalling,
+      );
+    } on LiteRtLmNativeException {
+      _state = _EngineState.failed;
+      rethrow;
     }
-    final handle = await LiteRtLmNativeRuntime.instance.createConversation(
-      _handle,
-      conversationConfig,
-    );
-    return Conversation._(
-      handle,
-      ToolManager(tools: conversationConfig.tools),
-      automaticToolCalling: conversationConfig.automaticToolCalling,
-    );
   }
 
   /// Creates a new lower-level session from the initialized engine.
   Future<Session> createSession([
     SessionConfig sessionConfig = const SessionConfig(),
   ]) async {
-    if (!_isInitialized) {
-      throw const LiteRtLmException('Engine is not initialized.');
+    _ensureInitialized();
+    try {
+      final handle = await LiteRtLmNativeRuntime.instance.createSession(
+        _handle,
+        sessionConfig,
+      );
+      return Session._(handle);
+    } on LiteRtLmNativeException {
+      _state = _EngineState.failed;
+      rethrow;
     }
-    final handle = await LiteRtLmNativeRuntime.instance.createSession(
-      _handle,
-      sessionConfig,
-    );
-    return Session._(handle);
   }
 
   /// Releases the native LiteRT-LM engine resources.
   Future<void> dispose() async {
-    if (_isInitialized) {
+    if (_state == _EngineState.initialized || _state == _EngineState.failed) {
       LiteRtLmNativeRuntime.instance.deleteEngine(_handle);
-      _isInitialized = false;
+      _state = _EngineState.disposed;
+    }
+  }
+
+  void _ensureInitialized() {
+    if (_state == _EngineState.failed) {
+      throw const LiteRtLmException('Engine failed and must be disposed.');
+    }
+    if (_state == _EngineState.disposed) {
+      throw const LiteRtLmException('Engine is already disposed.');
+    }
+    if (_state != _EngineState.initialized) {
+      throw const LiteRtLmException('Engine is not initialized.');
     }
   }
 }

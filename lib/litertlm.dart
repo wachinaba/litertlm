@@ -18,7 +18,12 @@ export 'litertlm/config.dart'
         SessionConfig;
 export 'litertlm/engine.dart'
     show Conversation, Engine, MessageCallback, Session;
-export 'litertlm/exceptions.dart' show LiteRtLmException;
+export 'litertlm/exceptions.dart'
+    show
+        LiteRtLmException,
+        LiteRtLmNativeException,
+        LiteRtLmOperation,
+        LiteRtLmOutOfMemoryException;
 export 'litertlm/experimental_flags.dart' show ExperimentalFlags;
 export 'litertlm/message.dart'
     show

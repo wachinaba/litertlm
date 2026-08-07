@@ -11,6 +11,19 @@ android {
 
     defaultConfig {
         minSdk = 23
+        consumerProguardFiles("consumer-rules.pro")
+
+        externalNativeBuild {
+            cmake {
+                arguments += "-DANDROID_STL=c++_shared"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+        }
     }
 
     compileOptions {

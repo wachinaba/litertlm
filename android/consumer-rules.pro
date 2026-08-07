@@ -1,0 +1,2 @@
+-keep class org.rockstudio.litertlm.LiteRtLmJniNativeException { *; }
+-keep class org.rockstudio.litertlm.LiteRtLmJniNativeGuard { *; }

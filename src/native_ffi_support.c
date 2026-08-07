@@ -23,6 +23,10 @@ typedef struct LiteRtLmStreamCallbackContext {
   LiteRtLmStreamChunkGetString get_error;
 } LiteRtLmStreamCallbackContext;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 FFI_PLUGIN_EXPORT void litertlm_free(void *pointer) { free(pointer); }
 
 FFI_PLUGIN_EXPORT void *litertlm_stream_callback_context_create(
@@ -81,3 +85,7 @@ FFI_PLUGIN_EXPORT void litertlm_stream_callback_bridge(
 
   context->callback(chunk_copy, is_final, error_copy);
 }
+
+#ifdef __cplusplus
+}
+#endif

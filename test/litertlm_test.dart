@@ -59,6 +59,29 @@ void main() {
     expect(config.modelPath, 'model.litertlm');
   });
 
+  test('out-of-memory exception is a LiteRtLmException', () {
+    const error = LiteRtLmOutOfMemoryException(
+      LiteRtLmOperation.conversationCreation,
+    );
+
+    expect(error, isA<LiteRtLmException>());
+    expect(error, isA<LiteRtLmNativeException>());
+    expect(error.code, LiteRtLmNativeException.outOfMemoryCode);
+    expect(error.operation, LiteRtLmOperation.conversationCreation);
+    expect(error.operation.nativeValue, 1);
+  });
+
+  test('native exception retains unknown error codes', () {
+    const error = LiteRtLmNativeException(
+      'Future native failure.',
+      LiteRtLmOperation.sessionCreation,
+      code: 42,
+    );
+
+    expect(error.code, 42);
+    expect(error.operation, LiteRtLmOperation.sessionCreation);
+  });
+
   test('exports experimental flags API', () {
     try {
       ExperimentalFlags.enableBenchmark = true;

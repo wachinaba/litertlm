@@ -37,7 +37,8 @@ void main(List<String> args) async {
     await CBuilder.library(
       name: 'native_ffi_support',
       assetName: _nativeFfiSupportAssetName,
-      sources: ['src/native_ffi_support.c'],
+      sources: ['src/native_ffi_support.c', 'src/native_ffi_exceptions.cc'],
+      language: Language.cpp,
     ).run(input: input, output: output);
   });
 }

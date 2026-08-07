@@ -268,5 +268,9 @@ Supported `ExperimentalFlags`:
 ### LiteRtLmException
 LiteRT-LM depends heavily on device hardware, runtime support, and model capabilities. Even when the APIs are used correctly, some actions may fail because of the user's hardware or model selection. Upstream LiteRT-LM may fail silently while logging the underlying issue in native logs. Since those logs are not practical to catch and handle internally, this package throws `LiteRtLmException` when LiteRT-LM clearly refuses to work. Developers can set `LogSeverity` to inspect detailed device logs. It is recommended to catch `LiteRtLmException` around the engine lifecycle and handle it as a recoverable runtime failure.
 
+### LiteRtLmNativeException, LiteRtLmOutOfMemoryException
+
+`LiteRtLmNativeException` is thrown when a native exception occurs while creating an engine, conversation, or session. `LiteRtLmOutOfMemoryException` is a specialized subtype for native memory allocation failures. Both extend `LiteRtLmException`. After catching either exception, dispose the engine instead of reusing it.
+
 ### UnsupportedError
 LiteRT-LM is under fast development, and not all features are immediately available on every platform. This package throws `UnsupportedError` when the selected platform runtime does not support the requested feature.

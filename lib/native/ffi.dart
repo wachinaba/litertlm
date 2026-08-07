@@ -18,6 +18,39 @@ const _codeAssetName = 'package:litertlm/native/ffi.dart';
 const _nativeFfiSupportAssetName =
     'package:litertlm/src/native_ffi_support.dart';
 const _samplerTypeTopP = 2;
+const _nativeCallSuccess = 0;
+const _nativeCallFailure = 1;
+
+Pointer<Opaque> _invokeGuardedPointerCall(
+  LiteRtLmOperation operation,
+  Pointer<Opaque> Function(Pointer<Int32> status) invoke,
+) {
+  final status = calloc<Int32>();
+  try {
+    final result = invoke(status);
+    switch (status.value) {
+      case _nativeCallSuccess:
+      case _nativeCallFailure:
+        return result;
+      case LiteRtLmNativeException.outOfMemoryCode:
+        throw LiteRtLmOutOfMemoryException(operation);
+      case LiteRtLmNativeException.unexpectedExceptionCode:
+        throw LiteRtLmNativeException(
+          'Unexpected native exception during ${operation.name}.',
+          operation,
+          code: status.value,
+        );
+      default:
+        throw LiteRtLmNativeException(
+          'Unknown native call status ${status.value} during ${operation.name}.',
+          operation,
+          code: status.value,
+        );
+    }
+  } finally {
+    calloc.free(status);
+  }
+}
 
 /// Creates the FFI-backed native runtime.
 LiteRtLmNativeRuntime createFfiRuntime() => _LiteRtLmFfiRuntime();
@@ -240,11 +273,18 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
     final ffiEngine = engine as _FfiEngineHandle;
 
     try {
-      final engine = _engineCreate(ffiEngine.settings);
-      if (engine == nullptr) {
+      final createdEngine = _invokeGuardedPointerCall(
+        LiteRtLmOperation.engineInitialization,
+        (status) => _guardedEngineCreate(
+          Native.addressOf(_engineCreate),
+          ffiEngine.settings,
+          status,
+        ),
+      );
+      if (createdEngine == nullptr) {
         throw const LiteRtLmException('Could not create LiteRT-LM engine.');
       }
-      ffiEngine.pointer = engine;
+      ffiEngine.pointer = createdEngine;
     } finally {
       _engineSettingsDelete(ffiEngine.settings);
     }
@@ -282,9 +322,14 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
 
       _conversationConfigSetSessionConfig(conversationConfig, sessionConfig);
       _applyConversationConfig(conversationConfig, config);
-      final conversation = _conversationCreate(
-        ffiEngine.pointer!,
-        conversationConfig,
+      final conversation = _invokeGuardedPointerCall(
+        LiteRtLmOperation.conversationCreation,
+        (status) => _guardedConversationCreate(
+          Native.addressOf(_conversationCreate),
+          ffiEngine.pointer!,
+          conversationConfig,
+          status,
+        ),
       );
       if (conversation == nullptr) {
         throw const LiteRtLmException(
@@ -315,7 +360,15 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
 
     try {
       _applySessionConfig(sessionConfig, config);
-      final session = _engineCreateSession(ffiEngine.pointer!, sessionConfig);
+      final session = _invokeGuardedPointerCall(
+        LiteRtLmOperation.sessionCreation,
+        (status) => _guardedEngineCreateSession(
+          Native.addressOf(_engineCreateSession),
+          ffiEngine.pointer!,
+          sessionConfig,
+          status,
+        ),
+      );
       if (session == nullptr) {
         throw const LiteRtLmException('Could not create LiteRT-LM session.');
       }
@@ -659,7 +712,11 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
   @override
   void deleteEngine(EngineHandle engine) {
     final ffiEngine = engine as _FfiEngineHandle;
-    _engineDelete(ffiEngine.pointer!);
+    final pointer = ffiEngine.pointer;
+    if (pointer != null) {
+      _engineDelete(pointer);
+      ffiEngine.pointer = null;
+    }
   }
 
   @override
@@ -1206,6 +1263,19 @@ typedef _EngineSettingsSetSupportedLoraRanksNative =
 typedef _EngineCreateNative = Pointer<Opaque> Function(Pointer<Opaque>);
 typedef _EngineCreateSessionNative =
     Pointer<Opaque> Function(Pointer<Opaque>, Pointer<Opaque>);
+typedef _GuardedEngineCreateNative =
+    Pointer<Opaque> Function(
+      Pointer<NativeFunction<_EngineCreateNative>>,
+      Pointer<Opaque>,
+      Pointer<Int32>,
+    );
+typedef _GuardedEngineCreateSessionNative =
+    Pointer<Opaque> Function(
+      Pointer<NativeFunction<_EngineCreateSessionNative>>,
+      Pointer<Opaque>,
+      Pointer<Opaque>,
+      Pointer<Int32>,
+    );
 typedef _SessionConfigSetSamplerParamsNative =
     Void Function(Pointer<Opaque>, Pointer<Opaque>);
 typedef _SamplerParamsSetIntNative = Void Function(Pointer<Opaque>, Int);
@@ -1223,6 +1293,13 @@ typedef _ConversationConfigSetStreamToolCallsNative =
     Void Function(Pointer<Opaque>, Bool, Pointer<Utf8>);
 typedef _ConversationCreateNative =
     Pointer<Opaque> Function(Pointer<Opaque>, Pointer<Opaque>);
+typedef _GuardedConversationCreateNative =
+    Pointer<Opaque> Function(
+      Pointer<NativeFunction<_ConversationCreateNative>>,
+      Pointer<Opaque>,
+      Pointer<Opaque>,
+      Pointer<Int32>,
+    );
 typedef _InputDataCreateNative =
     Pointer<Opaque> Function(Int, Pointer<Void>, Size);
 typedef _SessionRunPrefillNative =
@@ -1418,6 +1495,16 @@ external int _engineSettingsSetSupportedAudioLoraRanks(
 )
 external Pointer<Opaque> _engineCreate(Pointer<Opaque> settings);
 
+@Native<_GuardedEngineCreateNative>(
+  symbol: 'litertlm_engine_create_guarded',
+  assetId: _nativeFfiSupportAssetName,
+)
+external Pointer<Opaque> _guardedEngineCreate(
+  Pointer<NativeFunction<_EngineCreateNative>> create,
+  Pointer<Opaque> settings,
+  Pointer<Int32> status,
+);
+
 @Native<_EngineCreateSessionNative>(
   symbol: 'litert_lm_engine_create_session',
   assetId: _codeAssetName,
@@ -1425,6 +1512,17 @@ external Pointer<Opaque> _engineCreate(Pointer<Opaque> settings);
 external Pointer<Opaque> _engineCreateSession(
   Pointer<Opaque> engine,
   Pointer<Opaque> sessionConfig,
+);
+
+@Native<_GuardedEngineCreateSessionNative>(
+  symbol: 'litertlm_engine_create_session_guarded',
+  assetId: _nativeFfiSupportAssetName,
+)
+external Pointer<Opaque> _guardedEngineCreateSession(
+  Pointer<NativeFunction<_EngineCreateSessionNative>> create,
+  Pointer<Opaque> engine,
+  Pointer<Opaque> sessionConfig,
+  Pointer<Int32> status,
 );
 
 @Native<Pointer<Opaque> Function()>(
@@ -1646,6 +1744,17 @@ external void _conversationOptionalArgsDelete(Pointer<Opaque> optionalArgs);
 external Pointer<Opaque> _conversationCreate(
   Pointer<Opaque> engine,
   Pointer<Opaque> config,
+);
+
+@Native<_GuardedConversationCreateNative>(
+  symbol: 'litertlm_conversation_create_guarded',
+  assetId: _nativeFfiSupportAssetName,
+)
+external Pointer<Opaque> _guardedConversationCreate(
+  Pointer<NativeFunction<_ConversationCreateNative>> create,
+  Pointer<Opaque> engine,
+  Pointer<Opaque> config,
+  Pointer<Int32> status,
 );
 
 @Native<Void Function(Pointer<Opaque>)>(
