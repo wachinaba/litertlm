@@ -5,11 +5,19 @@ plugins {
 group = "org.rockstudio.litertlm"
 version = "1.0-SNAPSHOT"
 
-repositories {
-    flatDir {
-        dirs("libs")
+val prefixCacheAar = file("libs/litertlm-android-prefix-cache.aar")
+val extractedPrefixCacheAar = layout.buildDirectory.dir("prefix-cache-aar")
+val extractPrefixCacheAar =
+    if (prefixCacheAar.exists()) {
+        tasks.register<Sync>("extractPrefixCacheAar") {
+            from(zipTree(prefixCacheAar)) {
+                include("classes.jar", "jni/**")
+            }
+            into(extractedPrefixCacheAar)
+        }
+    } else {
+        null
     }
-}
 
 android {
     namespace = "org.rockstudio.litertlm"
@@ -36,6 +44,12 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    if (prefixCacheAar.exists()) {
+        sourceSets.getByName("main").jniLibs.srcDir(
+            extractedPrefixCacheAar.map { it.dir("jni") },
+        )
+    }
 }
 
 kotlin {
@@ -44,14 +58,16 @@ kotlin {
     }
 }
 
+extractPrefixCacheAar?.let { extractTask ->
+    tasks.named("preBuild").configure {
+        dependsOn(extractTask)
+    }
+}
+
 dependencies {
-    val prefixCacheAar = file("libs/litertlm-android-prefix-cache.aar")
     if (prefixCacheAar.exists()) {
         implementation(
-            mapOf(
-                "name" to "litertlm-android-prefix-cache",
-                "ext" to "aar",
-            ),
+            files(extractedPrefixCacheAar.map { it.file("classes.jar") }),
         )
         implementation("com.google.code.gson:gson:2.13.2")
         implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
