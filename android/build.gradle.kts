@@ -5,6 +5,12 @@ plugins {
 group = "org.rockstudio.litertlm"
 version = "1.0-SNAPSHOT"
 
+repositories {
+    flatDir {
+        dirs("libs")
+    }
+}
+
 android {
     namespace = "org.rockstudio.litertlm"
     compileSdk = 36
@@ -41,7 +47,12 @@ kotlin {
 dependencies {
     val prefixCacheAar = file("libs/litertlm-android-prefix-cache.aar")
     if (prefixCacheAar.exists()) {
-        implementation(files(prefixCacheAar))
+        implementation(
+            mapOf(
+                "name" to "litertlm-android-prefix-cache",
+                "ext" to "aar",
+            ),
+        )
         implementation("com.google.code.gson:gson:2.13.2")
         implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     } else {
