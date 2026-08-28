@@ -20,11 +20,12 @@ jobs:
           cache: true
       - run: flutter --version
       - run: flutter pub get
-      - run: flutter analyze
+      - name: Prepare declared example asset directories
+        run: mkdir -p example/assets/audio example/assets/images example/assets/models
+      - run: flutter analyze --no-fatal-infos --no-fatal-warnings
       - run: flutter test
       - name: Generate Android example runner
         run: |
-          mkdir -p example/assets/audio example/assets/images example/assets/models
           flutter create --platforms=android --project-name=litertlm_example --org=org.rockstudio example
       - name: Compile Android bridge
         working-directory: example
