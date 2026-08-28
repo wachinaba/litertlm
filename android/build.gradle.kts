@@ -67,7 +67,9 @@ extractPrefixCacheAar?.let { extractTask ->
 dependencies {
     if (prefixCacheAar.exists()) {
         implementation(
-            files(extractedPrefixCacheAar.map { it.file("classes.jar") }),
+            files(extractedPrefixCacheAar.map { it.file("classes.jar") }).apply {
+                extractPrefixCacheAar?.let { builtBy(it) }
+            },
         )
         implementation("com.google.code.gson:gson:2.13.2")
         implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
