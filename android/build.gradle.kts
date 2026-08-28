@@ -47,7 +47,7 @@ android {
 
     if (prefixCacheAar.exists()) {
         sourceSets.getByName("main").jniLibs.srcDir(
-            extractedPrefixCacheAar.map { it.dir("jni") },
+            extractedPrefixCacheAar.get().dir("jni").asFile,
         )
     }
 }
