@@ -132,6 +132,9 @@ abstract interface class LiteRtLmNativeRuntime {
   /// Gets the number of tokens in the conversation KV Cache.
   Future<int> getTokenCount(ConversationHandle conversation);
 
+  /// Restores the conversation to its prefilled preface checkpoint.
+  Future<void> resetConversationToPreface(ConversationHandle conversation);
+
   /// Gets benchmark information from a native conversation.
   Future<BenchmarkInfo> getBenchmarkInfo(ConversationHandle conversation);
 

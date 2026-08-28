@@ -126,6 +126,10 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
     'getTokenCount',
     '(Lcom/google/ai/edge/litertlm/Conversation;)I',
   );
+  late final _resetConversationToPreface = _class.staticMethodId(
+    'resetConversationToPreface',
+    '(Lcom/google/ai/edge/litertlm/Conversation;)V',
+  );
   late final _getBenchmarkInfo = _class.staticMethodId(
     'getBenchmarkInfo',
     '(Lcom/google/ai/edge/litertlm/Conversation;)Ljava/lang/String;',
@@ -724,6 +728,16 @@ class _LiteRtLmJniRuntime implements LiteRtLmNativeRuntime {
   Future<int> getTokenCount(ConversationHandle conversation) async {
     final jniConversation = conversation as _JniConversationHandle;
     return _getTokenCount.call(_class, jint.type, [
+      jniConversation.conversation,
+    ]);
+  }
+
+  @override
+  Future<void> resetConversationToPreface(
+    ConversationHandle conversation,
+  ) async {
+    final jniConversation = conversation as _JniConversationHandle;
+    _resetConversationToPreface.call(_class, jvoid.type, [
       jniConversation.conversation,
     ]);
   }

@@ -182,6 +182,7 @@ void main() {
         applyPromptTemplateInSession: false,
       ),
       automaticToolCalling: false,
+      prefillPrefaceOnInit: true,
     );
 
     final json =
@@ -205,6 +206,7 @@ void main() {
     expect(sessionConfig['maxOutputTokens'], 128);
     expect(sessionConfig['applyPromptTemplateInSession'], false);
     expect(json['automaticToolCalling'], false);
+    expect(json['prefillPrefaceOnInit'], true);
   });
 
   test('serializes session input data', () {

@@ -1,3 +1,15 @@
+## Unreleased
+
+* Added Android support for `ConversationConfig.prefillPrefaceOnInit`, which
+  prefills system instructions, initial messages, and tools into the KV cache
+  during conversation creation.
+* Added explicit unsupported errors for this option on the bundled C and Web
+  runtimes.
+* Added Android checkpoint restore through a patched LiteRT-LM runtime.
+* Added `Conversation.resetToPreface()` and `sendMessageStateless()` for
+  repeated independent requests that retain only the fixed system-prompt KV
+  cache.
+
 ## 0.0.13
 
 * Added `LiteRtLmNativeException` and `LiteRtLmOutOfMemoryException` to report native failures during engine, conversation, and session creation.

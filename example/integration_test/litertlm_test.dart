@@ -110,13 +110,21 @@ void main() {
       ),
     );
     Conversation? conversation;
+    int? initialPrefixTokenCount;
     try {
       await engine.initialize();
       conversation = await engine.createConversation(
         ConversationConfig(
           systemMessage: Message.system('You are a helpful assistant.'),
+          prefillPrefaceOnInit: defaultTargetPlatform == TargetPlatform.android,
         ),
       );
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        // The system preface must already be present before the first user
+        // message when Android prefix prefill is enabled.
+        initialPrefixTokenCount = await conversation.getTokenCount();
+        expect(initialPrefixTokenCount, greaterThan(0));
+      }
       if (kIsWeb) {
         await expectLater(conversation.renderPreface(), throwsUnsupportedError);
       } else {
@@ -129,6 +137,16 @@ void main() {
       expect(response.text.length, greaterThan(5));
       if (!kIsWeb) {
         expect(await conversation.getTokenCount(), greaterThan(0));
+      }
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        await conversation.resetToPreface();
+        final prefixTokenCount = await conversation.getTokenCount();
+        expect(prefixTokenCount, initialPrefixTokenCount);
+
+        final independentResponse = await conversation.sendMessageStateless(
+          Message.user('Hello'),
+        );
+        expect(independentResponse.text.length, greaterThan(5));
       }
     } finally {
       await conversation?.dispose();

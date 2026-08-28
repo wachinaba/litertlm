@@ -286,6 +286,38 @@ class Conversation {
     return LiteRtLmNativeRuntime.instance.getTokenCount(handle);
   }
 
+  /// Restores this conversation to the fixed system-preface checkpoint.
+  ///
+  /// The system prompt KV cache is retained, while message history and all
+  /// per-turn native processor state are cleared. The conversation must have
+  /// been created with [ConversationConfig.prefillPrefaceOnInit] enabled.
+  /// Do not call this concurrently with generation.
+  Future<void> resetToPreface() {
+    final handle = _handle;
+    if (handle == null) {
+      throw const LiteRtLmException('Conversation is already disposed.');
+    }
+    return LiteRtLmNativeRuntime.instance.resetConversationToPreface(handle);
+  }
+
+  /// Sends one independent request using only the fixed system preface.
+  ///
+  /// The saved preface checkpoint is restored before sending [message], so
+  /// prior calls (including their user and model messages) cannot affect this
+  /// request. Automatic tool-call rounds within this invocation remain intact.
+  Future<Message> sendMessageStateless(
+    Message message, {
+    Map<String, Object?>? extraContext,
+    int? maxOutputTokens,
+  }) async {
+    await resetToPreface();
+    return sendMessage(
+      message,
+      extraContext: extraContext,
+      maxOutputTokens: maxOutputTokens,
+    );
+  }
+
   /// Gets benchmark information from the conversation.
   Future<BenchmarkInfo> getBenchmarkInfo() {
     final handle = _handle;

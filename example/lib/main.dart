@@ -33,12 +33,20 @@ class LiteRtLmExample {
       debugPrint('engine.initialize succeeded');
       // Create a conversation.
       conversation = await engine.createConversation(
-        ConversationConfig(tools: [weatherTool]),
+        ConversationConfig(
+          systemMessage: Message.system(
+            'You are a concise assistant. Use tools when appropriate.',
+          ),
+          tools: [weatherTool],
+          prefillPrefaceOnInit: true,
+        ),
       );
       debugPrint('engine.createConversation succeeded');
       // Send a message and get the response.
-      final response = await conversation.sendMessage(Message.user(message));
-      debugPrint('conversation.sendMessage succeeded');
+      final response = await conversation.sendMessageStateless(
+        Message.user(message),
+      );
+      debugPrint('conversation.sendMessageStateless succeeded');
       int? tokenCount;
       try {
         tokenCount = await conversation.getTokenCount();

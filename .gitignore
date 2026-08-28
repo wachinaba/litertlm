@@ -10,3 +10,5 @@
 /build/
 ios/*/.swiftpm/xcode/xcuserdata/
 android/.cxx/
+.artifacts/
+android/libs/*.aar

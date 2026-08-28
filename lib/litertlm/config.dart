@@ -123,6 +123,7 @@ class ConversationConfig {
     this.sessionConfig,
     this.automaticToolCalling = true,
     this.channels,
+    this.prefillPrefaceOnInit = false,
   });
 
   /// The system message for the conversation.
@@ -146,6 +147,14 @@ class ConversationConfig {
   /// Channel definitions for model output, or `null` to use model defaults.
   final List<Channel>? channels;
 
+  /// Whether to prefill the system message, initial messages, and tools into
+  /// the conversation KV cache while the conversation is being created.
+  ///
+  /// Enabling this moves the fixed-prefix prefill cost from the first
+  /// [Conversation.sendMessage] call to [Engine.createConversation]. Keep the
+  /// returned conversation alive to retain that KV cache.
+  final bool prefillPrefaceOnInit;
+
   /// Converts this configuration to JSON-compatible values.
   Map<String, Object?> toJson() {
     return {
@@ -161,6 +170,7 @@ class ConversationConfig {
       if (sessionConfig case final sessionConfig?)
         'sessionConfig': sessionConfig.toJson(),
       'automaticToolCalling': automaticToolCalling,
+      'prefillPrefaceOnInit': prefillPrefaceOnInit,
       if (channels case final channels?)
         'channels': channels.map((channel) => channel.toJson()).toList(),
     };

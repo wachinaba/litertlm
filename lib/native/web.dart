@@ -360,6 +360,15 @@ class _LiteRtLmWebRuntime implements LiteRtLmNativeRuntime {
   }
 
   @override
+  Future<void> resetConversationToPreface(
+    ConversationHandle conversation,
+  ) async {
+    throw UnsupportedError(
+      'Conversation preface checkpoint restore is currently supported only on Android.',
+    );
+  }
+
+  @override
   Future<BenchmarkInfo> getBenchmarkInfo(
     ConversationHandle conversation,
   ) async {
@@ -503,6 +512,12 @@ return Promise.race([
     if (config.channels != null) {
       throw UnsupportedError(
         'ConversationConfig.channels is not supported by the LiteRT-LM JS SDK.',
+      );
+    }
+
+    if (config.prefillPrefaceOnInit) {
+      throw UnsupportedError(
+        'ConversationConfig.prefillPrefaceOnInit is not supported by the LiteRT-LM JS SDK bundled by this package.',
       );
     }
 

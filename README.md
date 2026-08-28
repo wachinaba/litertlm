@@ -7,7 +7,7 @@ API Reference: https://pub.dev/documentation/litertlm/latest/
 
 Live Example Flutter Project: https://github.com/yangyuan/agentic
 
-Powered by LiteRT-LM v0.15.0.
+Android uses LiteRT-LM v0.16.1, with an optional prefix-checkpoint patch.
 
 ## Overview
 This package is a lightweight bridge to the official LiteRT-LM runtimes. It uses each platform's optimized distribution, providing the same hardware acceleration and capabilities, including the Swift package on iOS and macOS, the Maven artifact on Android, and CLI distribution on Windows.
@@ -56,8 +56,40 @@ await engine.initialize();
 final conversation = await engine.createConversation(
   ConversationConfig(
     systemMessage: Message.system('You are concise and helpful.'),
+    // Android: prefill the fixed preface now instead of on the first message.
+    prefillPrefaceOnInit: true,
   ),
 );
+```
+
+#### Android system-prompt KV prefill
+
+Set `prefillPrefaceOnInit` to `true` to prefill the system message, initial
+messages, and tool declarations while `createConversation` is running. The
+returned `Conversation` owns the KV cache, so keep that same instance alive for
+all turns that should reuse the prefix.
+
+This is currently supported on Android only. Other platforms throw
+`UnsupportedError` when the option is enabled. Disposing the conversation
+releases its KV cache.
+
+The stock Maven AAR can prefill but cannot restore that prefix. To use
+`resetToPreface` or `sendMessageStateless`, install the patched Android AAR as
+described in [docs/android-setup.md](docs/android-setup.md).
+
+```dart
+final conversation = await engine.createConversation(
+  ConversationConfig(
+    systemMessage: Message.system(longSystemPrompt),
+    prefillPrefaceOnInit: true,
+  ),
+);
+
+// The fixed prefix has already been processed when createConversation returns.
+final prefixTokens = await conversation.getTokenCount();
+final first = await conversation.sendMessageStateless(Message.user('Hello'));
+final second = await conversation.sendMessageStateless(Message.user('Again'));
+// Both requests see the fixed preface, but never see each other.
 ```
 
 3. Send a `Message` and read the response.

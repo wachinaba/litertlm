@@ -39,5 +39,12 @@ kotlin {
 }
 
 dependencies {
-    implementation("com.google.ai.edge.litertlm:litertlm-android:0.15.0")
+    val prefixCacheAar = file("libs/litertlm-android-prefix-cache.aar")
+    if (prefixCacheAar.exists()) {
+        implementation(files(prefixCacheAar))
+        implementation("com.google.code.gson:gson:2.13.2")
+        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    } else {
+        implementation("com.google.ai.edge.litertlm:litertlm-android:0.16.1")
+    }
 }

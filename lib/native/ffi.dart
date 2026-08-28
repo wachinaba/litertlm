@@ -295,6 +295,11 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
     EngineHandle engine,
     ConversationConfig config,
   ) async {
+    if (config.prefillPrefaceOnInit) {
+      throw UnsupportedError(
+        'ConversationConfig.prefillPrefaceOnInit is not supported by the LiteRT-LM C API bundled for this platform.',
+      );
+    }
     if (config.channels != null) {
       throw UnsupportedError(
         'ConversationConfig.channels is not supported by the LiteRT-LM C API.',
@@ -613,6 +618,15 @@ class _LiteRtLmFfiRuntime implements LiteRtLmNativeRuntime {
       throw const LiteRtLmException('Could not get LiteRT-LM token count.');
     }
     return tokenCount;
+  }
+
+  @override
+  Future<void> resetConversationToPreface(
+    ConversationHandle conversation,
+  ) async {
+    throw UnsupportedError(
+      'Conversation preface checkpoint restore is currently supported only on Android.',
+    );
   }
 
   @override

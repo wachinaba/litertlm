@@ -195,6 +195,20 @@ object LiteRtLmJniBridge {
     }
 
     @JvmStatic
+    fun resetConversationToPreface(conversation: Conversation) {
+        // Keep the plugin source compilable against the official Maven AAR.
+        // The method is supplied by the patched LiteRT-LM AAR documented in
+        // docs/android-setup.md; reflection makes a missing custom runtime a
+        // clear runtime error instead of a Kotlin linkage error at build time.
+        val method = conversation.javaClass.methods.firstOrNull {
+            it.name == "resetToPreface" && it.parameterCount == 0
+        } ?: throw UnsupportedOperationException(
+            "This build uses the stock LiteRT-LM Android AAR. Install the prefix-cache AAR to use checkpoint restore.",
+        )
+        method.invoke(conversation)
+    }
+
+    @JvmStatic
     @OptIn(ExperimentalApi::class)
     fun getBenchmarkInfo(conversation: Conversation): String {
         return benchmarkInfoToJson(conversation.getBenchmarkInfo())
@@ -345,6 +359,7 @@ object LiteRtLmJniBridge {
             loraConfig = parseLoraConfig(sessionConfig?.optJSONObject("loraConfig")),
             automaticToolCalling = false,
             channels = parseChannels(json.optJSONArray("channels")),
+            prefillPrefaceOnInit = json.optBoolean("prefillPrefaceOnInit", false),
             maxOutputToken = sessionConfig
                 ?.optInt("maxOutputTokens", Int.MIN_VALUE)
                 ?.takeUnless { it == Int.MIN_VALUE },
