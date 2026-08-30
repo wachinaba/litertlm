@@ -1,6 +1,7 @@
 *
 !.gitignore
 !pubspec.yaml
+!README.md
 !lib/
 !lib/**/
 !lib/**/*.dart
@@ -8,3 +9,8 @@
 !test_driver/integration_test.dart
 !integration_test/
 !integration_test/litertlm_test.dart
+!android/
+!android/**/
+android/.gitignore
+!android/app/src/main/kotlin/org/rockstudio/litertlm_example/MainActivity.kt
+!android/app/src/debug/AndroidManifest.xml

@@ -34,7 +34,16 @@ The model itself is not required for unit tests. An Android device and a
 `.litertlm` model are required for the integration test that measures KV-cache
 token counts and first-token latency.
 
-## Build and install the checkpoint-enabled AAR
+## Install a released checkpoint-enabled bundle
+
+Application developers should normally download the versioned integration
+bundle from the
+[Flutter fork releases](https://github.com/wachinaba/litertlm/releases). The
+bundle contains both the matching plugin source and AAR. GitHub Actions and a
+local LiteRT-LM source build are not required for consumers. See the detailed
+[Flutter integration guide](flutter-integration-ja.md).
+
+## Build the checkpoint-enabled AAR from source
 
 The official Android AAR exposes `prefillPrefaceOnInit`, but does not expose a
 way to restore the resulting KV-cache checkpoint. The companion
@@ -64,7 +73,7 @@ final conversation = await engine.createConversation(
 );
 
 final a = await conversation.sendMessageStateless(Message.user(inputA));
-final b = await conversation.sendMessageStateless(Message.user(inputB));
+final chunks = conversation.sendMessageStatelessStream(Message.user(inputB));
 ```
 
 Each call rewinds to the checkpoint immediately after the fixed preface, clears

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:litertlm/litertlm.dart';
 
+import 'checkpoint_chat.dart';
 import 'model/asset.dart';
 
 class LiteRtLmExample {
@@ -103,7 +104,7 @@ class WeatherTool implements Tool {
 }
 
 void main() {
-  runApp(const MainApp());
+  runApp(const CheckpointChatApp());
 }
 
 class MainApp extends StatefulWidget {

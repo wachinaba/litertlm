@@ -147,6 +147,12 @@ void main() {
           Message.user('Hello'),
         );
         expect(independentResponse.text.length, greaterThan(5));
+
+        final streamedIndependentResponse = await conversation
+            .sendMessageStatelessStream(Message.user('Hello'))
+            .map((message) => message.text)
+            .join();
+        expect(streamedIndependentResponse.length, greaterThan(5));
       }
     } finally {
       await conversation?.dispose();

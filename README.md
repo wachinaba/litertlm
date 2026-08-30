@@ -1,5 +1,13 @@
-# litertlm
-Native LiteRT-LM bindings for Flutter across mobile, desktop, and web.
+# litertlm prefix-cache checkpoint fork
+
+Native LiteRT-LM bindings for Flutter, extended with Android system-preface KV
+checkpoint restore. This is an experimental fork of
+[yangyuan/litertlm](https://github.com/yangyuan/litertlm) for applications that
+must reuse one fixed system prompt while processing independent requests.
+
+For third-party installation, migration from the upstream package, binary
+compatibility, and release checksums, read the
+[Flutter integration guide](docs/flutter-integration-ja.md).
 
 Pub Package: https://pub.dev/packages/litertlm
 
@@ -27,9 +35,22 @@ This package is a lightweight bridge to the official LiteRT-LM runtimes. It uses
 ## Usage
 
 ### Installation
+
+The checkpoint-enabled Android runtime is not contained in the upstream Pub
+package. Download the versioned integration bundle from
+[GitHub Releases](https://github.com/wachinaba/litertlm/releases), extract it to
+`third_party/litertlm`, and use a path dependency:
+
+```yaml
+dependencies:
+  litertlm:
+    path: third_party/litertlm
 ```
-$ flutter pub add litertlm
-```
+
+The bundle already contains
+`android/libs/litertlm-android-prefix-cache.aar`. Consumers do not need GitHub
+Actions or Bazel to build an app. Do not install only the upstream `litertlm`
+Pub package when checkpoint restore is required.
 
 ### Prepare Model
 You can download `.litertlm` models from [LiteRT Community on Hugging Face](https://huggingface.co/litert-community) or other distributors. Models such as Gemma 4 E2B/E4B are great starting points and run on most devices and platforms, including web.
@@ -74,8 +95,9 @@ This is currently supported on Android only. Other platforms throw
 releases its KV cache.
 
 The stock Maven AAR can prefill but cannot restore that prefix. To use
-`resetToPreface` or `sendMessageStateless`, install the patched Android AAR as
-described in [docs/android-setup.md](docs/android-setup.md).
+`resetToPreface`, `sendMessageStateless`, or `sendMessageStatelessStream`, use
+the versioned release bundle described in the
+[integration guide](docs/flutter-integration-ja.md).
 
 ```dart
 final conversation = await engine.createConversation(
@@ -90,6 +112,20 @@ final prefixTokens = await conversation.getTokenCount();
 final first = await conversation.sendMessageStateless(Message.user('Hello'));
 final second = await conversation.sendMessageStateless(Message.user('Again'));
 // Both requests see the fixed preface, but never see each other.
+```
+
+Stream an independent response while retaining the same fixed prefix:
+
+```dart
+final text = StringBuffer();
+
+await for (final chunk in conversation.sendMessageStatelessStream(
+  Message.user('Explain the result.'),
+  maxOutputTokens: 256,
+)) {
+  if (chunk.isEmpty) continue;
+  text.write(chunk.text);
+}
 ```
 
 3. Send a `Message` and read the response.

@@ -318,6 +318,24 @@ class Conversation {
     );
   }
 
+  /// Streams one independent response using only the fixed system preface.
+  ///
+  /// The saved preface checkpoint is restored before sending [message], so
+  /// prior calls cannot affect this request. Canceling the returned stream
+  /// cancels the active native generation.
+  Stream<Message> sendMessageStatelessStream(
+    Message message, {
+    Map<String, Object?>? extraContext,
+    int? maxOutputTokens,
+  }) async* {
+    await resetToPreface();
+    yield* sendMessageStream(
+      message,
+      extraContext: extraContext,
+      maxOutputTokens: maxOutputTokens,
+    );
+  }
+
   /// Gets benchmark information from the conversation.
   Future<BenchmarkInfo> getBenchmarkInfo() {
     final handle = _handle;

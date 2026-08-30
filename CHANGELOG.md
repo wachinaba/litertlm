@@ -1,4 +1,4 @@
-## Unreleased
+## 0.0.14-prefix-cache.1
 
 * Added Android support for `ConversationConfig.prefillPrefaceOnInit`, which
   prefills system instructions, initial messages, and tools into the KV cache
@@ -9,6 +9,12 @@
 * Added `Conversation.resetToPreface()` and `sendMessageStateless()` for
   repeated independent requests that retain only the fixed system-prompt KV
   cache.
+* Added `Conversation.sendMessageStatelessStream()` for independent requests
+  with incremental output delivery.
+* Added a checkpoint chat example that loads models directly from Android
+  device storage in debug builds instead of bundling multi-GB models.
+* Added a release bundle and integration guide for new and existing Flutter
+  applications.
 
 ## 0.0.13
 

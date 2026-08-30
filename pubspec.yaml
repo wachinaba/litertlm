@@ -1,7 +1,9 @@
 name: litertlm
 description: Native LiteRT-LM bindings for Flutter across mobile, desktop, and web.
-version: 0.0.13
-homepage: https://github.com/yangyuan/litertlm
+version: 0.0.14-prefix-cache.1
+homepage: https://github.com/wachinaba/litertlm
+repository: https://github.com/wachinaba/litertlm
+issue_tracker: https://github.com/wachinaba/litertlm/issues
 
 environment:
   sdk: ^3.12.1

@@ -1,5 +1,9 @@
 # LiteRT-LM Flutter システムプロンプト KV-cache checkpoint 実装レポート
 
+第三者が新規 Flutter アプリへ導入する手順、既存 `litertlm` アプリからの
+移行、versioned release binary の利用方法は
+[Flutter アプリ統合ガイド](flutter-integration-ja.md)を参照すること。
+
 作成日: 2026-08-29
 対象ブランチ: `prefix-cache-checkpoint`
 
@@ -46,7 +50,7 @@ final second = await conversation.sendMessageStateless(
 - ローカルcheckout名: `litertlm-prefix-cache`
 - GitHub: <https://github.com/wachinaba/litertlm>
 - ブランチ: `prefix-cache-checkpoint`
-- 最終 commit: `3743266 Track extracted classes task dependency`
+- 公開基準: `v0.0.14-prefix-cache.1`
 
 主要な変更 commit:
 
@@ -63,7 +67,7 @@ final second = await conversation.sendMessageStateless(
 - ローカルcheckout名: `LiteRT-LM-prefix-cache`
 - GitHub: <https://github.com/wachinaba/LiteRT-LM>
 - ブランチ: `prefix-cache-checkpoint`
-- 最終 commit: `6766d10 Build Flutter example against patched AAR`
+- 公開基準: `v0.16.1-prefix-cache.1` (`d6f1ea6`)
 
 主要な変更 commit:
 
@@ -76,6 +80,7 @@ final second = await conversation.sendMessageStateless(
 | `131275b` | Bazel output symlink を探索対象に追加 |
 | `6c90fc6` | AAR 用 classes-only Kotlin target を追加 |
 | `6766d10` | patched AAR を使う Flutter APK 統合ビルドを追加 |
+| `d6f1ea6` | Android JNI を 16 KB page size 向けに link |
 
 ### 2.3 ローカル AAR
 
@@ -89,8 +94,8 @@ final second = await conversation.sendMessageStateless(
 
 | 項目 | 値 |
 | --- | --- |
-| サイズ | 33,695,286 bytes |
-| SHA-256 | `4184F7A606BA8F7E64EDA77D75BF7EA3001F3D134B344CD3AE0D86E01596B241` |
+| サイズ | 40,821,981 bytes |
+| SHA-256 | `CA0AA954A5281A546D5C4C88D08BDBA599DE194893F296EBA99B5749388E3AB5` |
 | Kotlin API | `com/google/ai/edge/litertlm/Conversation.class` を収録 |
 | Kotlin method | `resetToPreface` を確認 |
 | ABI | `arm64-v8a`, `x86_64` |
@@ -301,6 +306,7 @@ gh run download <run-id> `
 | --- | --- | --- |
 | [33174867909](https://github.com/wachinaba/LiteRT-LM/actions/runs/33174867909) | C++ test、両 ABI JNI、AAR の完全ビルド | 成功 |
 | [33213093144](https://github.com/wachinaba/LiteRT-LM/actions/runs/33213093144) | classes/AAR 再生成と patched AAR 使用 Flutter APK 統合ビルド | 成功、9分36秒 |
+| [33250308561](https://github.com/wachinaba/LiteRT-LM/actions/runs/33250308561) | 16 KB alignment 対応 AAR と Flutter APK 統合 build | 成功 |
 
 完全ビルドは約1時間19分を要した。再利用モードは native build を省けるが、SDK/Flutter/Gradle の初回 download があるため約10分を見込む。
 
